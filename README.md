@@ -1,2 +1,2 @@
-# agendas-med-core
-Back-end do AgendasMed
+# agendaspro-core
+Back-end do AgendasPro
