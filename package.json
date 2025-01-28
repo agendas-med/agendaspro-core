@@ -1,0 +1,33 @@
+{
+  "name": "yume-api",
+  "version": "1.0.0",
+  "description": "Api da rede social Yume",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/saymon-felipe/yume-api.git"
+  },
+  "author": "Saymon Felipe",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/saymon-felipe/yume-api/issues"
+  },
+  "homepage": "https://github.com/saymon-felipe/yume-api#readme",
+  "dependencies": {
+    "bcrypt": "^5.0.1",
+    "body-parser": "^1.17.0",
+    "cors": "^2.8.5",
+    "dotenv": "^10.0.0",
+    "express": "^4.17.1",
+    "jsonwebtoken": "^8.5.1",
+    "morgan": "^1.10.0",
+    "mysql": "^2.18.1",
+    "node-cache": "^5.1.2",
+    "nodemailer": "^6.7.2",
+    "nodemon": "^2.0.20"
+  }
+}
