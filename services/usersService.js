@@ -7,58 +7,38 @@ const NodeCache = require('node-cache');
 const tokenCache = new NodeCache({ stdTTL: 28.800 });
 
 let userService = {
-    register: function (email, nickname, password) {
+    register: function (name, email, password) {
+        console.log(email)
         return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                    SELECT
-                        id
-                    FROM
-                        users
-                    WHERE
-                        email = ?
-                    OR
-                        nickname = ?
-                `, [email, nickname]
-            ).then((results) => {
-                if (results.length > 0) {
-                    reject("Nickname ou email indisponível");
-                } else {                    
-                    bcrypt.hash(password, 10, (errBcrypt, hash) => {
-                        if (errBcrypt) {
-                            reject(errBcrypt);
-                        }
-
-                        functions.executeSql(
-                            `
-                                INSERT INTO
-                                    users
-                                    (nickname, email, password, profile_photo, banner_photo)
-                                VALUES
-                                    (?, ?, ?, ?, ?)
-                            `, [
-                                nickname, 
-                                email, 
-                                hash, 
-                                process.env.URL_API + '/public/default-user-image.png',
-                                process.env.URL_API + '/public/default-banner-image.png'
-                            ]
-                        ).then((results2) => {
-
-                            let createdUser = {
-                                id: results2.insertId,
-                                email: email
-                            }
-
-                            resolve(createdUser);
-                        }).catch((error2) => {
-                            reject(error2);
-                        })
-                    });
+            bcrypt.hash(password, 10, (errBcrypt, hash) => {
+                if (errBcrypt) {
+                    reject(errBcrypt);
                 }
-            }).catch((error) => {
-                reject(error);
-            })        
+
+                functions.executeSql(
+                    `
+                        INSERT INTO
+                            users
+                            (name, email, password)
+                        VALUES
+                            (?, ?, ?)
+                    `, [
+                        name, 
+                        email, 
+                        hash
+                    ]
+                ).then((results2) => {
+
+                    let createdUser = {
+                        id: results2.insertId,
+                        email: email
+                    }
+
+                    resolve(createdUser);
+                }).catch((error2) => {
+                    reject(error2);
+                })
+            });     
         })
     },
     login: function (email, password) {
@@ -85,7 +65,8 @@ let userService = {
                             let token = jwt.sign({
                                 id: results[0].id,
                                 email: results[0].email,
-                                nickname: results[0].nickname
+                                name: results[0].name,
+                                company: results[0].company
                             }, 
                             process.env.JWT_KEY,
                             {
@@ -113,7 +94,8 @@ let userService = {
                     let newToken = jwt.sign({
                         id: decoded.id,
                         email: decoded.email,
-                        nickname: decoded.nickname
+                        name: decoded.name,
+                        company: decoded.company
                     }, process.env.JWT_KEY, {expiresIn: "8h"});
 
                     tokenCache.set(decoded.id, newToken);

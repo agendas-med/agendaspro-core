@@ -85,3 +85,9 @@ CREATE TABLE versaodb (
 --  25     01     28    .              01
 -- (ANO)  (MÊS)  (DIA)     (VERSIONAMENTOS NO DIA)
 INSERT INTO versaodb (version) VALUES ("250128.01");
+
+alter table users modify column company int;
+alter table users modify column role int;
+alter table users modify column temporary_password varchar(20);
+
+INSERT INTO versaodb (version) VALUES ("250128.02");

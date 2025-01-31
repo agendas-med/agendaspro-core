@@ -5,7 +5,8 @@ const _usersService = require("../services/usersService");
 const functions = require("../utils/functions");
 
 router.post("/register", (req, res, next) => {
-    _usersService.register(req.body.email, req.body.nickname, req.body.password).then((results) => {
+    console.log(req.body.email)
+    _usersService.register(req.body.name, req.body.email, req.body.password).then((results) => {
         let response = functions.createResponse("Usuário criado com sucesso", results, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
