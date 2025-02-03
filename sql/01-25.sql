@@ -59,6 +59,20 @@ CREATE TABLE `appointments` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `business_types`
+--
+
+DROP TABLE IF EXISTS `business_types`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `business_types` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=19 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `companies`
 --
 
@@ -69,6 +83,9 @@ CREATE TABLE `companies` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
   `address` varchar(255) NOT NULL,
+  `zip_code` varchar(8) DEFAULT NULL,
+  `city` varchar(100) DEFAULT NULL,
+  `state` varchar(2) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -207,7 +224,6 @@ CREATE TABLE `users` (
   `city` varchar(100) DEFAULT NULL,
   `state` varchar(100) DEFAULT NULL,
   `country` varchar(100) DEFAULT NULL,
-  `role` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
@@ -244,4 +260,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-02-02 14:19:19
+-- Dump completed on 2025-02-03 14:55:36
