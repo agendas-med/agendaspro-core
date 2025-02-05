@@ -6,7 +6,7 @@ const jwt = require('jsonwebtoken');
 const NodeCache = require('node-cache');
 const tokenCache = new NodeCache({ stdTTL: 28.800 });
 
-let userService = {
+let usersService = {
     register: function (name, email, password) {
         console.log(email)
         return new Promise((resolve, reject) => {
@@ -109,6 +109,7 @@ let userService = {
             functions.executeSql(
                 `
                     SELECT
+                        id,
                         name,
                         email,
                         url_photo,
@@ -127,6 +128,7 @@ let userService = {
                 this.returnUserCompanies(user_id).then((results2) => {
 
                     let user = {
+                        id: results[0].id,
                         name: results[0].name,
                         email: results[0].email,
                         url_photo: results[0].url_photo,
@@ -155,12 +157,35 @@ let userService = {
                     SELECT
                         company_id
                     FROM
-                        company_invitations
+                        company_members
                     WHERE
                         user_id = ?
                 `, [user_id]
             ).then((results) => {
-                resolve(results);
+                let companies = [];
+
+                for (let i = 0; i < results.length; i++) {
+                    companies.push(results[i].company_id);
+                }
+
+                resolve(companies);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    enterCompany: function (user_id, company_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO
+                        company_members
+                        (user_id, company_id)
+                    VALUES
+                        (?, ?)
+                `, [user_id, company_id]
+            ).then(() => {
+                resolve();
             }).catch((error) => {
                 reject(error);
             })
@@ -168,4 +193,4 @@ let userService = {
     }
 }
 
-module.exports = userService;
+module.exports = usersService;

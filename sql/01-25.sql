@@ -83,11 +83,14 @@ CREATE TABLE `companies` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
   `address` varchar(255) NOT NULL,
-  `zip_code` varchar(8) DEFAULT NULL,
   `city` varchar(100) DEFAULT NULL,
   `state` varchar(2) DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+  `business_type` int(11) DEFAULT NULL,
+  `zip_code` varchar(9) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `FK_companies_business_type` (`business_type`),
+  CONSTRAINT `FK_companies_business_type` FOREIGN KEY (`business_type`) REFERENCES `business_types` (`id`)
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -129,7 +132,7 @@ CREATE TABLE `company_members` (
   KEY `FK_company_members_company` (`company_id`),
   CONSTRAINT `FK_company_members_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_company_members_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -260,4 +263,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-02-03 14:55:36
+-- Dump completed on 2025-02-04 23:16:04

@@ -1,6 +1,7 @@
 const functions = require("../utils/functions");
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
+const _usersService = require("./usersService");
 
 let companiesService = {
     returnCompany: function (company_id, user_id) {
@@ -42,6 +43,25 @@ let companiesService = {
                 `, []
             ).then((results) => {
                 resolve(results);
+            })
+        })
+    },
+    createCompany: function (user_id, name, address, zip_code, city, state, business_type) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO
+                        companies
+                        (name, address, zip_code, city, state, business_type)
+                    VALUES
+                        (?, ?, ?, ?, ?, ?)
+                `, [name, address, zip_code, city, state, business_type]
+            ).then((results) => {
+                _usersService.enterCompany(user_id, results.insertId).then(() => {
+                    resolve();
+                })
+            }).catch((error) => {
+                reject(error);
             })
         })
     }
