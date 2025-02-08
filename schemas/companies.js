@@ -57,6 +57,124 @@ let schema = {
                 'number.integer': errors.integer.integer(),
                 'any.required': errors.string.empty()
             })
+    }),
+    editCompany: Joi.object({
+        id: Joi.number().integer().required()
+            .messages({
+                'number.base': errors.integer.base(),
+                'number.integer': errors.integer.integer(),
+                'any.required': errors.string.empty()
+            }),
+            name: Joi.string().min(3).max(100).required()
+            .messages({
+                'string.base': errors.string.empty(),
+                'string.empty': errors.string.empty(),
+                'string.min': errors.string.min(3),
+                'string.max': errors.string.max(100),
+                'any.required': errors.string.empty()
+            }),
+    
+        address: Joi.string().min(5).max(255).required()
+            .messages({
+                'string.base': errors.string.empty(),
+                'string.empty': errors.string.empty(),
+                'string.min': errors.string.min(5),
+                'string.max': errors.string.max(255),
+                'any.required': errors.string.empty()
+            }),
+    
+        zip_code: Joi.string().pattern(/^\d{5}-\d{3}$/).required()
+            .messages({
+                'string.empty': errors.string.empty(),
+                'string.pattern.base': errors.string.pattern(),
+                'any.required': errors.string.empty()
+            }),
+    
+        city: Joi.string().min(2).max(100).required()
+            .messages({
+                'string.empty': errors.string.empty(),
+                'string.min': errors.string.min(2),
+                'string.max': errors.string.max(100),
+                'any.required': errors.string.empty()
+            }),
+    
+        state: Joi.string().length(2).uppercase().required()
+            .messages({
+                'string.empty': errors.string.empty(),
+                'string.length': errors.string.length(2),
+                'string.uppercase': errors.string.uppercase(),
+                'any.required': errors.string.empty()
+            }),
+        business_type: Joi.number().integer().required()
+            .messages({
+                'number.base': errors.integer.base(),
+                'number.integer': errors.integer.integer(),
+                'any.required': errors.string.empty()
+            }),
+        configurations: Joi.object({
+            notifications: Joi.array().items(
+                Joi.object({
+                    id: Joi.number().integer().required().messages({
+                        'number.base': errors.integer.base(),
+                        'number.integer': errors.integer.integer(),
+                        'any.required': errors.string.empty()
+                    }),
+                    code: Joi.string().required().messages({
+                        'string.base': errors.string.base(),
+                        'any.required': errors.string.empty()
+                    }),
+                    name: Joi.string().required().messages({
+                        'string.base': errors.string.base(),
+                        'any.required': errors.string.empty()
+                    }),
+                    active: Joi.boolean().required().messages({
+                        'boolean.base': errors.boolean.base(),
+                        'any.required': errors.string.empty()
+                    })
+                })
+            ).required().messages({
+                'array.base': errors.array.base(),
+                'any.required': errors.string.empty()
+            }),
+            opening_hours: Joi.array().items(
+                Joi.object({
+                    day: Joi.number().integer().min(1).max(7).required().messages({
+                        'number.base': errors.integer.base(),
+                        'number.integer': errors.integer.integer(),
+                        'number.min': errors.string.min(1),
+                        'number.max': errors.string.max(7),
+                        'any.required': errors.string.empty()
+                    }),
+                    hours: Joi.array().items(
+                        Joi.object({
+                            initial_date: Joi.string().required().messages({
+                                'string.base': errors.string.base(),
+                                'any.required': errors.string.empty()
+                            }).required(),
+                            final_date: Joi.string().required().messages({
+                                'string.base': errors.string.base(),
+                                'any.required': errors.string.empty()
+                            }).required()
+                        }).messages({
+                            'object.base': errors.object.base(),
+                            'any.required': errors.string.empty()
+                        })
+                    ).required().messages({
+                        'array.base': errors.array.base(),
+                        'any.required': errors.string.empty()
+                    })
+                }).required().messages({
+                    'object.base': errors.object.base(),
+                    'any.required': errors.string.empty()
+                })
+            ).required().messages({
+                'array.base': errors.array.base(),
+                'any.required': errors.string.empty()
+            })
+        }).required().messages({
+            'object.base': errors.object.base(),
+            'any.required': errors.string.empty()
+        })
     })
 }
 

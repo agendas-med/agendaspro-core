@@ -104,7 +104,7 @@ let usersService = {
             })
         })
     },
-    returnUser: function (user_id) {
+    returnUser: function (user_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -123,7 +123,7 @@ let usersService = {
                         users 
                     WHERE
                         id = ?
-                `, [user_id], true, 60
+                `, [user_id], !clearCache, 60
             ).then((results) => {
                 this.returnUserCompanies(user_id).then((results2) => {
 
@@ -150,7 +150,7 @@ let usersService = {
             })
         })
     },
-    returnUserCompanies: function (user_id) {
+    returnUserCompanies: function (user_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -160,7 +160,7 @@ let usersService = {
                         company_members
                     WHERE
                         user_id = ?
-                `, [user_id]
+                `, [user_id], !clearCache, 60
             ).then((results) => {
                 let companies = [];
 
@@ -185,6 +185,7 @@ let usersService = {
                         (?, ?)
                 `, [user_id, company_id]
             ).then(() => {
+                this.returnUser(user_id, true);
                 resolve();
             }).catch((error) => {
                 reject(error);
