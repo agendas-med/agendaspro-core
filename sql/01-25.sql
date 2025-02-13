@@ -172,7 +172,27 @@ CREATE TABLE `config_companies_schedule` (
   PRIMARY KEY (`id`),
   KEY `FK_config_companies_schedule_company_id` (`company_id`),
   CONSTRAINT `FK_config_companies_schedule_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `config_company_roles`
+--
+
+DROP TABLE IF EXISTS `config_company_roles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `config_company_roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `name` varchar(50) NOT NULL,
+  `company_id` int(11) NOT NULL,
+  `permission` int(11) NOT NULL DEFAULT 0,
+  `create_date` datetime NOT NULL DEFAULT current_timestamp(),
+  `default_role` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `FK_config_company_roles_company_id` (`company_id`),
+  CONSTRAINT `FK_config_company_roles_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -212,6 +232,26 @@ CREATE TABLE `config_opening_hours` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `config_users_roles`
+--
+
+DROP TABLE IF EXISTS `config_users_roles`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `config_users_roles` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `role_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `assignment_date` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `FK_config_users_roles_user_id` (`user_id`),
+  KEY `FK_config_users_roles_role_id` (`role_id`),
+  CONSTRAINT `FK_config_users_roles_role_id` FOREIGN KEY (`role_id`) REFERENCES `config_company_roles` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `FK_config_users_roles_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `customers`
 --
 
@@ -241,7 +281,7 @@ CREATE TABLE `preferences` (
   `name` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `code` (`code`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -319,4 +359,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-02-08 17:04:20
+-- Dump completed on 2025-02-12 22:10:08

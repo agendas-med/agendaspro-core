@@ -8,7 +8,6 @@ const tokenCache = new NodeCache({ stdTTL: 28.800 });
 
 let usersService = {
     register: function (name, email, password) {
-        console.log(email)
         return new Promise((resolve, reject) => {
             bcrypt.hash(password, 10, (errBcrypt, hash) => {
                 if (errBcrypt) {
@@ -186,6 +185,23 @@ let usersService = {
                 `, [user_id, company_id]
             ).then(() => {
                 this.returnUser(user_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    insertRole: function (user_id, role_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO
+                        config_users_roles
+                        (user_id, role_id)
+                    VALUES
+                        (?, ?)
+                `, [user_id, role_id]
+            ).then(() => {
                 resolve();
             }).catch((error) => {
                 reject(error);

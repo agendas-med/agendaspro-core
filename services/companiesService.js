@@ -25,18 +25,21 @@ let companiesService = {
                 `, [company_id, user_id], !clearCache, 60
             ).then((results) => {
                 this.returnCompanyConfigurations(company_id, clearCache).then((results2) => {
-                    let company = {
-                        id: results[0]?.id || null,
-                        name: results[0]?.name || "",
-                        address: results[0]?.address || "",
-                        zip_code: results[0]?.zip_code || "",
-                        business_type: results[0]?.business_type || "",
-                        city: results[0]?.city || "",
-                        state: results[0]?.state || "",
-                        configurations: results2
-                    }
-    
-                    resolve(company);
+                    this.returnCompanyRoles(company_id, clearCache).then((results3) => {
+                        let company = {
+                            id: results[0]?.id || null,
+                            name: results[0]?.name || "",
+                            address: results[0]?.address || "",
+                            zip_code: results[0]?.zip_code || "",
+                            business_type: results[0]?.business_type || "",
+                            city: results[0]?.city || "",
+                            state: results[0]?.state || "",
+                            configurations: results2,
+                            roles: results3
+                        }
+
+                        resolve(company);
+                    })
                 })
             })
         })
@@ -55,6 +58,88 @@ let companiesService = {
             })
         })
     },
+    createRole: function (company_id, name, permission, default_role = false) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO
+                        config_company_roles
+                        (company_id, name, permission, default_role)   
+                    VALUES
+                        (?, ?, ?, ?)                 
+                `, [company_id, name, permission, default_role ? 1 : 0]
+            ).then((results) => {
+                if (results.affectedRows == 0) {
+                    reject("Ocorreu um erro ao criar o cargo");
+                }
+
+                this.returnCompanyRoles(company_id, true);
+                resolve(results.insertId);
+            })
+        })
+    },
+    excludeRole: function (company_id, role_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    DELETE FROM
+                        config_company_roles
+                    WHERE
+                        id = ? AND company_id = ? AND default_role = 0
+                `, [role_id, company_id]
+            ).then((results) => {
+                if (results.affectedRows == 0) {
+                    reject("Ocorreu um erro ao excluir o cargo");
+                }
+
+                this.returnCompanyRoles(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    editRole: function (company_id, role_id, name, permission) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE 
+                        config_company_roles
+                    SET
+                        name = ?, permission = ?
+                    WHERE
+                        id = ? AND company_id = ?
+                `, [name, permission, role_id, company_id]
+            ).then((results) => {
+                if (results.affectedRows == 0) {
+                    reject("Ocorreu um erro ao editar o cargo");
+                }
+
+                this.returnCompanyRoles(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    returnCompanyRoles: function (company_id, clearCache = false) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        *
+                    FROM
+                        config_company_roles
+                    WHERE
+                        company_id = ?
+                `, [company_id], !clearCache, 60
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
     createCompany: function (user_id, name, address, zip_code, city, state, business_type) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
@@ -66,8 +151,23 @@ let companiesService = {
                         (?, ?, ?, ?, ?, ?)
                 `, [name, address, zip_code, city, state, business_type]
             ).then((results) => {
-                _usersService.enterCompany(user_id, results.insertId).then(() => {
-                    this.insertCompanyDefaultPreferences(results.insertId);
+                let promises = [];
+
+                promises.push(
+                    _usersService.enterCompany(user_id, results.insertId)
+                )
+
+                promises.push(
+                    this.createRole(results.insertId, "Gerente", 1, true).then((roleId) => {
+                        _usersService.insertRole(user_id, roleId);
+                    })
+                )
+
+                promises.push(
+                    this.insertCompanyDefaultPreferences(results.insertId)
+                )
+                
+                Promise.all(promises).then(() => {
                     resolve();
                 })
             }).catch((error) => {
