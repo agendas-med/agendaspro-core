@@ -27,6 +27,9 @@ const errors = {
     },
     object: {
         base: () => "O campo deve ser um objeto."
+    },
+    email: {
+        base: () => "O e-mail informado é inválido."
     }
 };
 

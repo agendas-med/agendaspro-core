@@ -93,4 +93,17 @@ router.delete("/roles/:id", login, (req, res, next) => {
     })
 });
 
+router.post("/invite_user", login, (req, res, next) => {
+    _companiesService.checkCompanyAdmin(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.inviteUser(req.headers['selected-company'], req.body.name, req.body.id, req.body.email, req.usuario.id).then(() => {
+            let response = functions.createResponse("Convite enviado com sucesso", null, "POST", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        })
+    }).catch((error) => {
+        return res.status(401).send(error);
+    })
+});
+
 module.exports = router;

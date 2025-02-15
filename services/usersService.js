@@ -116,8 +116,7 @@ let usersService = {
                         zip_code,
                         address,
                         city,
-                        state,
-                        country
+                        state
                     FROM
                         users 
                     WHERE
@@ -203,6 +202,68 @@ let usersService = {
                 `, [user_id, role_id]
             ).then(() => {
                 resolve();
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    findUser: function (searchString) {
+        return new Promise((resolve, reject) => {
+            searchString = searchString == "***" ? "" : searchString;
+
+            functions.executeSql(
+                `
+                    SELECT
+                        id,
+                        name,
+                        email,
+                        url_photo,
+                        tel,
+                        zip_code,
+                        address,
+                        city,
+                        state
+                    FROM
+                        users 
+                    WHERE
+                        name LIKE ?
+                        OR email LIKE ?
+                `, [`%${searchString}%`, `%${searchString}%`]
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    checkIfUserExists: function (email) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        id,
+                        name,
+                        email
+                    FROM
+                        users
+                    WHERE
+                        email = ?
+                `, [email]
+            ).then((results) => {
+                let exist = false;
+
+                if (results.length > 0) {
+                    exist = true;
+                }
+
+                exist = false;
+
+                let retorno = {
+                    exist: exist,
+                    user: results[0]
+                }
+
+                resolve(retorno);
             }).catch((error) => {
                 reject(error);
             })

@@ -1,8 +1,7 @@
 const mysql = require("../mysql").pool;
-
 const NodeCache = require('node-cache');
-
 const cache = new NodeCache();
+const crypto = require('crypto');
 
 let queriesQuantity = 0;
 let queriesServedByCache = 0;
@@ -58,6 +57,13 @@ let functions = {
         }
 
         return response;
+    },
+    generateToken: function () {
+        const randomPart = crypto.randomBytes(5).toString('hex').substring(0, 10);
+        const timestamp = new Date().toISOString().replace(/\D/g, '').substring(0, 14);
+        const token = `${randomPart.slice(0, 5)}${timestamp}${randomPart.slice(5)}`;
+
+        return token;
     },
     insertCompanyPreference: function (company_id, preference_code) {
         this.executeSql(

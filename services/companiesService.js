@@ -340,6 +340,102 @@ let companiesService = {
                 reject(error);
             })
         })
+    },
+    checkCompaniesFromUser: function (user_id, company_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        *
+                    FROM
+                        company_members
+                    WHERE
+                        user_id = ? AND company_id = ?
+                `, [user_id, company_id], true, 60
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    inviteUser: function (company_id, requested_user_name, requested_user_id, requested_user_email, request_user) {
+        return new Promise((resolve, reject) => {
+            this.checkCompaniesFromUser(requested_user_id, company_id).then((results2) => {
+                if (results2.length > 0) {
+                    reject("Este usuário já faz parte desta empresa");
+                }
+
+                this.checkIfExistInvite(company_id, requested_user_email).then((results3) => {
+                    if (results3.length > 0) {
+                        reject("Este usuário já foi convidado para esta empresa");
+                    }
+
+                    _usersService.checkIfUserExists(requested_user_email).then((results) => {
+                        let invited_user = results.user?.email;
+        
+                        if (!results.exist) {
+                            invited_user = requested_user_email;
+                        }
+    
+                        let token = functions.generateToken();
+        
+                        functions.executeSql(
+                            `
+                                INSERT INTO
+                                    company_invitations
+                                    (invited_user, company_id, invited_by, token)
+                                VALUES
+                                    (?, ?, ?, ?)
+                            `, [invited_user, company_id, request_user, token]
+                        ).then(() => {
+                            if (!results.exist) {
+                                functions.executeSql(
+                                    `
+                                        SELECT
+                                            name
+                                        FROM
+                                            companies
+                                        WHERE 
+                                            id = ?
+                                    `, [company_id]
+                                ).then((results2) => {
+                                    let company_name = results2[0].name;
+                                    let link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}`;
+                                    let emailHtml = emailTemplates.inviteUser(requested_user_name, company_name, link_convite);
+            
+                                    sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, requested_user_email).then(() => {
+                                        resolve();
+                                    })
+                                })
+                            }
+                        }).catch((error) => {
+                            reject(error);
+                        })
+                    }).catch((error) => {
+                        reject(error);
+                    })
+                })
+            })
+        })
+    },
+    checkIfExistInvite: function (company_id, email) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        *
+                    FROM
+                        company_invitations
+                    WHERE
+                        company_id = ? AND invited_user = ?
+                `, [company_id, email]
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
     }
 }
 

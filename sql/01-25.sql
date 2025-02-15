@@ -102,17 +102,16 @@ DROP TABLE IF EXISTS `company_invitations`;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `company_invitations` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `user_id` int(11) NOT NULL,
   `company_id` int(11) NOT NULL,
   `invited_by` int(11) NOT NULL,
   `invitation_date` datetime DEFAULT current_timestamp(),
   `status` enum('pending','accepted','declined') DEFAULT 'pending',
+  `invited_user` varchar(255) NOT NULL,
+  `token` varchar(50) NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `FK_invitations_user` (`user_id`),
   KEY `FK_invitations_company` (`company_id`),
-  CONSTRAINT `FK_invitations_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `FK_invitations_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+  CONSTRAINT `FK_invitations_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -322,7 +321,6 @@ CREATE TABLE `users` (
   `address` varchar(255) DEFAULT NULL,
   `city` varchar(100) DEFAULT NULL,
   `state` varchar(100) DEFAULT NULL,
-  `country` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
@@ -359,4 +357,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-02-12 22:10:08
+-- Dump completed on 2025-02-15  1:03:28
