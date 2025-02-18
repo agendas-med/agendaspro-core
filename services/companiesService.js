@@ -296,7 +296,7 @@ let companiesService = {
             })
         })
     },
-    checkCompanyAdmin: function (user_id, company_id) {
+    checkCompanyPermission: function (user_id, company_id) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -305,18 +305,18 @@ let companiesService = {
                     FROM
                         company_members
                     WHERE
-                        user_id = ? AND company_id = ? AND role = "Admin"
-                `, [user_id, company_id], true, 60
+                        user_id = ${user_id} AND company_id = ${company_id} AND (role = "Admin" OR (SELECT permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ${company_id} AND cur.user_id = ${user_id})) 
+                `, [], true, 60
             ).then((results) => {
                 if (results.length < 0) {
-                    reject("Você não tem permissão para fazer isso");
+                    reject("Você não tem permissão de administrador");
                 } 
 
                 resolve();
             })
         })
     },
-    editCompany: function (company_id, name, address, city, state, business_type, zip_code, configurations) {
+    editCompany: function (user_id, company_id, name, address, city, state, business_type, zip_code, configurations) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -334,6 +334,7 @@ let companiesService = {
 
                 this.editCompanyConfigurations(company_id, configurations).then(() => {
                     this.returnCompany(company_id, true);
+                    _usersService.returnUserCompanies(user_id, true);
                     resolve();
                 })
             }).catch((error) => {
@@ -359,7 +360,7 @@ let companiesService = {
             })
         })
     },
-    inviteUser: function (company_id, requested_user_name, requested_user_id, requested_user_email, request_user) {
+    inviteUser: function (company_id, requested_user_name, requested_user_id, requested_user_email, request_user, role_id) {
         return new Promise((resolve, reject) => {
             this.checkCompaniesFromUser(requested_user_id, company_id).then((results2) => {
                 if (results2.length > 0) {
@@ -384,31 +385,36 @@ let companiesService = {
                             `
                                 INSERT INTO
                                     company_invitations
-                                    (invited_user, company_id, invited_by, token)
+                                    (invited_user, company_id, invited_by, token, role_id)
                                 VALUES
-                                    (?, ?, ?, ?)
-                            `, [invited_user, company_id, request_user, token]
+                                    (?, ?, ?, ?, ?)
+                            `, [invited_user, company_id, request_user, token, role_id]
                         ).then(() => {
-                            if (!results.exist) {
-                                functions.executeSql(
-                                    `
-                                        SELECT
-                                            name
-                                        FROM
-                                            companies
-                                        WHERE 
-                                            id = ?
-                                    `, [company_id]
-                                ).then((results2) => {
-                                    let company_name = results2[0].name;
-                                    let link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}`;
-                                    let emailHtml = emailTemplates.inviteUser(requested_user_name, company_name, link_convite);
-            
-                                    sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, requested_user_email).then(() => {
-                                        resolve();
-                                    })
+                            functions.executeSql(
+                                `
+                                    SELECT
+                                        name
+                                    FROM
+                                        companies
+                                    WHERE 
+                                        id = ?
+                                `, [company_id]
+                            ).then((results2) => {
+                                let company_name = results2[0].name;
+
+                                if (!results.exist) {
+                                    link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}&empresa=${encodeURIComponent(company_name)}&account=0`;
+                                } else {
+                                    link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}&empresa=${encodeURIComponent(company_name)}&account=1`;
+                                }
+    
+                                let emailHtml = emailTemplates.inviteUser(requested_user_name, company_name, link_convite);
+        
+                                sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, requested_user_email).then(() => {
+                                    this.returnCompanyUsers(company_id, true);
+                                    resolve();
                                 })
-                            }
+                            })
                         }).catch((error) => {
                             reject(error);
                         })
@@ -432,6 +438,75 @@ let companiesService = {
                 `, [company_id, email]
             ).then((results) => {
                 resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    returnCompanyUsers: function (company_id, clearCache = false) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        u.id,
+                        u.name,
+                        u.email,
+                        ccr.id AS role,
+                        ccr.name AS roleName,
+                        ccr.permission AS rolePermission,
+                        "" AS status
+                    FROM
+                        company_members cm
+                    INNER JOIN
+                        users u ON u.id = cm.user_id
+                    INNER JOIN
+                        config_users_roles cur ON cur.user_id = u.id
+                    INNER JOIN
+                        config_company_roles ccr ON ccr.id = cur.role_id
+                    WHERE
+                        cm.company_id = ${company_id}
+
+                    UNION
+
+                    SELECT
+                        NULL AS id,
+                        CASE 
+                            WHEN invited_user LIKE '%@%' THEN invited_user 
+                            ELSE CAST((SELECT name FROM users WHERE id = invited_user) AS CHAR) 
+                        END AS name,
+                        "" AS email,
+                        "" AS role,
+                        "" AS roleName,
+                        0 AS rolePermission,
+                        "Convite pendente" AS status
+                    FROM
+                        company_invitations ci
+                    WHERE
+                        ci.company_id = ${company_id} AND ci.status = "pending"
+
+                    ORDER BY id IS NULL, name;
+                `, [], !clearCache, 60
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    changeUserRole: function (role_id, user_id, company_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE 
+                        config_users_roles
+                    SET
+                        role_id = ?
+                    WHERE
+                        user_id = ?
+                `, [role_id, user_id]
+            ).then(() => {
+                this.returnCompanyUsers(company_id, true);
+                resolve();
             }).catch((error) => {
                 reject(error);
             })
