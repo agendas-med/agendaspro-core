@@ -669,7 +669,12 @@ let companiesService = {
                         DELETE FROM
                             company_invitations
                         WHERE
-                            company_id = ${company_id} AND invited_user = (SELECT email FROM users WHERE email = '${exclude_user_id}')
+                            company_id = ${company_id} AND invited_user = (SELECT email FROM users WHERE id = '${exclude_user_id}');
+
+                        DELETE FROM
+                            config_users_roles
+                        WHERE
+                            user_id = ${exclude_user_id} AND role_id IN (SELECT id FROM config_company_roles WHERE company_id = ${company_id})
                     `, []
                 ).then((results) => {
                     if (results.affectedRows == 0) {
