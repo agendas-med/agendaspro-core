@@ -150,4 +150,17 @@ router.post("/enter_company", (req, res, next) => {
     })
 });
 
+router.delete("/remove_user/:user_id", login, (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.removeUserFromCompany(req.headers['selected-company'], req.params.user_id, req.usuario.id).then(() => {
+            let response = functions.createResponse("Usuário removido com sucesso", null, "DELETE", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        })
+    }).catch((error) => {
+        return res.status(401).send(error);
+    })
+});
+
 module.exports = router;

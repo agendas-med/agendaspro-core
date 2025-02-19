@@ -635,6 +635,55 @@ let companiesService = {
             })
         })
     },
+    removeUserFromCompany: function (company_id, exclude_user_id, connected_user_id) {
+        return new Promise((resolve, reject) => {
+            if (exclude_user_id == connected_user_id) {
+                reject("Você não pode se auto remover da empresa");
+            }
+
+            functions.executeSql(
+                `
+                    SELECT
+                        *
+                    FROM
+                        company_members
+                    WHERE
+                        company_id = ?
+                `, [company_id]
+            ).then((results) => {
+                if (results.length == 0) {
+                    reject("Ocorreu um erro ao verificar os membros da empresa");
+                }
+
+                if (results.length == 1) {
+                    reject("Você não pode sair de uma empresa cujo o único membro é você");
+                }
+
+                functions.executeSql(
+                    `
+                        DELETE FROM
+                            company_members
+                        WHERE
+                            company_id = ${company_id} AND user_id = ${exclude_user_id};
+
+                        DELETE FROM
+                            company_invitations
+                        WHERE
+                            company_id = ${company_id} AND invited_user = (SELECT email FROM users WHERE email = '${exclude_user_id}')
+                    `, []
+                ).then((results) => {
+                    if (results.affectedRows == 0) {
+                        reject("Ocorreu um erro ao remover o usuário");
+                    }
+    
+                    this.returnCompanyUsers(company_id, true);
+                    resolve();
+                }).catch((error) => {
+                    reject(error);
+                })
+            })
+        })
+    },
     findUserByToken: function (token) {
         return new Promise((resolve, reject) => {
             this.checkTokenValidity(token).then((results) => {
