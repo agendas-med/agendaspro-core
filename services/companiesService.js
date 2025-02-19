@@ -168,6 +168,7 @@ let companiesService = {
                 )
                 
                 Promise.all(promises).then(() => {
+                    _usersService.returnUserCompanies(user_id, true);
                     resolve();
                 })
             }).catch((error) => {
@@ -305,10 +306,10 @@ let companiesService = {
                     FROM
                         company_members
                     WHERE
-                        user_id = ${user_id} AND company_id = ${company_id} AND (role = "Admin" OR (SELECT permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ${company_id} AND cur.user_id = ${user_id})) 
+                        user_id = ${user_id} AND company_id = ${company_id} AND (SELECT permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ${company_id} AND cur.user_id = ${user_id}) 
                 `, [], true, 60
             ).then((results) => {
-                if (results.length < 0) {
+                if (results.length == 0) {
                     reject("Você não tem permissão de administrador");
                 } 
 
@@ -352,7 +353,7 @@ let companiesService = {
                         company_members
                     WHERE
                         user_id = ? AND company_id = ?
-                `, [user_id, company_id], true, 60
+                `, [user_id, company_id]
             ).then((results) => {
                 resolve(results);
             }).catch((error) => {
@@ -380,7 +381,7 @@ let companiesService = {
                         }
     
                         let token = functions.generateToken();
-        
+                        
                         functions.executeSql(
                             `
                                 INSERT INTO
@@ -401,13 +402,7 @@ let companiesService = {
                                 `, [company_id]
                             ).then((results2) => {
                                 let company_name = results2[0].name;
-
-                                if (!results.exist) {
-                                    link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}&empresa=${encodeURIComponent(company_name)}&account=0`;
-                                } else {
-                                    link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}&empresa=${encodeURIComponent(company_name)}&account=1`;
-                                }
-    
+                                let link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}`;
                                 let emailHtml = emailTemplates.inviteUser(requested_user_name, company_name, link_convite);
         
                                 sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, requested_user_email).then(() => {
@@ -454,7 +449,7 @@ let companiesService = {
                         ccr.id AS role,
                         ccr.name AS roleName,
                         ccr.permission AS rolePermission,
-                        "" AS status
+                        "Membro" AS status
                     FROM
                         company_members cm
                     INNER JOIN
@@ -462,7 +457,7 @@ let companiesService = {
                     INNER JOIN
                         config_users_roles cur ON cur.user_id = u.id
                     INNER JOIN
-                        config_company_roles ccr ON ccr.id = cur.role_id
+                        config_company_roles ccr ON ccr.id = cur.role_id AND ccr.company_id = ${company_id}
                     WHERE
                         cm.company_id = ${company_id}
 
@@ -470,10 +465,7 @@ let companiesService = {
 
                     SELECT
                         NULL AS id,
-                        CASE 
-                            WHEN invited_user LIKE '%@%' THEN invited_user 
-                            ELSE CAST((SELECT name FROM users WHERE id = invited_user) AS CHAR) 
-                        END AS name,
+                        invited_user AS name,
                         "" AS email,
                         "" AS role,
                         "" AS roleName,
@@ -507,6 +499,152 @@ let companiesService = {
             ).then(() => {
                 this.returnCompanyUsers(company_id, true);
                 resolve();
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    checkTokenValidity: function (token) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        invited_user AS email
+                    FROM
+                        company_invitations
+                    WHERE
+                        token = ? AND status = "pending"
+                `, [token]
+            ).then((results) => {
+                if (results.length == 0) {
+                    reject("Token inválido ou expirado.");
+                }
+
+                resolve(results[0]?.email);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    updateInvite: function (token) {
+        return new Promise((resolve) => {
+            functions.executeSql(
+                `
+                    UPDATE
+                        company_invitations
+                    SET
+                        status = "accepted"
+                    WHERE
+                        token = ?;
+                `, [token]
+            ).then(() => {
+                resolve();
+            })
+        })
+    },
+    enterCompanyWithToken: function (token) {
+        return new Promise((resolve) => {
+            functions.executeSql(
+                `
+                    INSERT INTO 
+                            company_members
+                            (user_id, company_id)
+                        VALUES
+                            (
+                                (SELECT id from users WHERE email = (SELECT invited_user FROM company_invitations WHERE token = '${token}')),
+                                (SELECT company_id FROM company_invitations WHERE token = '${token}')
+                            )
+                `, []
+            ).then(() => {
+                resolve();
+            })
+        })
+    },
+    insertRoleFromInvite: function (token) {
+        return new Promise((resolve) => {
+            functions.executeSql(
+                `
+                    INSERT INTO 
+                        config_users_roles
+                        (role_id, user_id)
+                    VALUES
+                        (
+                            (SELECT role_id FROM company_invitations WHERE token = '${token}'), 
+                            (SELECT id from users WHERE email = (SELECT invited_user FROM company_invitations WHERE token = '${token}'))
+                        )
+                `, []
+            ).then(() => {
+                resolve();
+            })
+        })
+    },
+    enterCompany: function (token) {
+        return new Promise((resolve, reject) => {
+            let self = this;
+
+            this.checkTokenValidity(token).then(() => {
+                let promises = [];
+
+                promises.push(
+                    this.updateInvite(token)
+                )
+
+                promises.push(
+                    this.enterCompanyWithToken(token)
+                )
+                
+                promises.push(
+                    this.insertRoleFromInvite(token)
+                )
+
+                promises.push(
+                    functions.executeSql(
+                        `
+                            SELECT
+                                company_id
+                            FROM
+                                company_invitations
+                            WHERE
+                                token = ?
+                        `, [token]
+                    ).then((results) => {
+                        self.returnCompanyUsers(results[0].company_id, true);
+                    })
+                )
+
+                promises.push(
+                    functions.executeSql(
+                        `
+                            SELECT
+                                id
+                            FROM
+                                users
+                            WHERE 
+                                email = (SELECT invited_user FROM company_invitations WHERE token = ?)
+                        `, [token]
+                    ).then((results) => {
+                        _usersService.returnUserCompanies(results[0].id, true);
+                    })
+                )
+
+                Promise.all(promises).then(() => {
+                    resolve();
+                })
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    findUserByToken: function (token) {
+        return new Promise((resolve, reject) => {
+            this.checkTokenValidity(token).then((results) => {
+                _usersService.checkIfUserExists(results).then((results) => {
+                    if (results.exist) {
+                        resolve(true);
+                    }
+
+                    resolve(false);
+                })
             }).catch((error) => {
                 reject(error);
             })

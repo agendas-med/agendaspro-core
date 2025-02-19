@@ -71,7 +71,7 @@ let usersService = {
                                 expiresIn: "8h"
                             })
 
-                            resolve(token);
+                            resolve({jwtToken: token, id: results[0].id});
                         }
 
                         reject("Falha na autenticação");
@@ -255,8 +255,6 @@ let usersService = {
                 if (results.length > 0) {
                     exist = true;
                 }
-
-                exist = false;
 
                 let retorno = {
                     exist: exist,

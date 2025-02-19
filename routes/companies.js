@@ -36,7 +36,7 @@ router.patch("/:company_id", login, validate.validateRequest(validate.schemas.co
     })
 });
 
-router.get("/business_types", login, (req, res, next) => {
+router.get("/business_types", (req, res, next) => {
     _companiesService.returnBusinessTypes().then((results) => {
         let response = functions.createResponse("Retorno dos tipos de negócio", results, "GET", 200);
         return res.status(200).send(response);
@@ -129,6 +129,24 @@ router.post("/change_user_role", login, validate.validateRequest(validate.schema
         })
     }).catch((error) => {
         return res.status(401).send(error);
+    })
+});
+
+router.post("/find_user_by_token", (req, res, next) => {
+    _companiesService.findUserByToken(req.body.token).then((results) => {
+        let response = functions.createResponse("Verificação de existência do usuário", results, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    })
+});
+
+router.post("/enter_company", (req, res, next) => {
+    _companiesService.enterCompany(req.body.token).then(() => {
+        let response = functions.createResponse("Acesso à empresa liberado", null, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
     })
 });
 

@@ -16,10 +16,7 @@ router.post("/register", (req, res, next) => {
 
 router.post("/login", (req, res, next) => {
     _usersService.login(req.body.email, req.body.password).then((results) => {
-        let returnObj = {
-            jwtToken: results
-        }
-        let response = functions.createResponse("Usuario autenticado com sucesso", returnObj, "POST", 200);
+        let response = functions.createResponse("Usuario autenticado com sucesso", results, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
         return res.status(500).send(error);
