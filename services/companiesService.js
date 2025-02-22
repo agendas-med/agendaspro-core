@@ -82,18 +82,35 @@ let companiesService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                    DELETE FROM
-                        config_company_roles
+                    SELECT
+                        *
+                    FROM
+                        config_users_roles
                     WHERE
-                        id = ? AND company_id = ? AND default_role = 0
-                `, [role_id, company_id]
+                        role_id = ?
+                `, [role_id]
             ).then((results) => {
-                if (results.affectedRows == 0) {
-                    reject("Ocorreu um erro ao excluir o cargo");
+                if (results.length > 0) {
+                    reject("Você não pode excluir um cargo que ja está atribuído a alguém");
+                } else {
+                    functions.executeSql(
+                        `
+                            DELETE FROM
+                                config_company_roles
+                            WHERE
+                                id = ? AND company_id = ? AND default_role = 0
+                        `, [role_id, company_id]
+                    ).then((results) => {
+                        if (results.affectedRows == 0) {
+                            reject("Você não pode excluir o cargo padrão da empresa");
+                        }
+        
+                        this.returnCompanyRoles(company_id, true);
+                        resolve();
+                    }).catch((error) => {
+                        reject(error);
+                    })
                 }
-
-                this.returnCompanyRoles(company_id, true);
-                resolve();
             }).catch((error) => {
                 reject(error);
             })
@@ -539,6 +556,8 @@ let companiesService = {
                 `, [token]
             ).then(() => {
                 resolve();
+            }).catch((error) => {
+                reject(error);
             })
         })
     },
@@ -557,6 +576,8 @@ let companiesService = {
                 `, []
             ).then(() => {
                 resolve();
+            }).catch((error) => {
+                reject(error);
             })
         })
     },
@@ -575,6 +596,8 @@ let companiesService = {
                 `, []
             ).then(() => {
                 resolve();
+            }).catch((error) => {
+                reject(error);
             })
         })
     },
