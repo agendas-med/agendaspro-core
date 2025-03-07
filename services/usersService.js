@@ -3,8 +3,6 @@ const bcrypt = require('bcrypt');
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
 const jwt = require('jsonwebtoken');
-const NodeCache = require('node-cache');
-const tokenCache = new NodeCache({ stdTTL: 28.800 });
 
 let usersService = {
     register: function (name, email, password) {
@@ -94,9 +92,6 @@ let usersService = {
                         email: decoded.email,
                         name: decoded.name
                     }, process.env.JWT_KEY, {expiresIn: "8h"});
-
-                    tokenCache.set(decoded.id, newToken);
-                    tokenCache.del(token);
                     
                     resolve(newToken);
                 }

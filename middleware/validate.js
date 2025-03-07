@@ -1,5 +1,6 @@
 const companies = require("../schemas/companies");
 const users = require("../schemas/users");
+const customers = require("../schemas/customers");
 
 let validate = {
     validateRequest: (schema) => {
@@ -20,7 +21,8 @@ let validate = {
     },
     schemas: {
         companies: companies,
-        users: users
+        users: users,
+        customers: customers
     }
 }
 
