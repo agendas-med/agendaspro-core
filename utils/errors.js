@@ -12,6 +12,7 @@ const errors = {
         email: () => "O e-mail informado é inválido.",
         url: () => "A URL informada é inválida.",
         uuid: () => "O identificador UUID informado é inválido.",
+        invalid: () => "A campo deve ser um dos valores permitidos."
     },
     integer: {
         base: () => "O campo deve ser um número.",

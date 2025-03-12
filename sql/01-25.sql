@@ -48,13 +48,15 @@ CREATE TABLE `appointments` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `customer_id` int(11) NOT NULL,
   `customer_name` varchar(255) NOT NULL,
-  `service` varchar(255) NOT NULL,
   `date` datetime NOT NULL,
   `duration` int(11) NOT NULL,
   `observations` text DEFAULT NULL,
+  `service_id` int(11) NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `customer_id` (`customer_id`),
-  CONSTRAINT `appointments_ibfk_1` FOREIGN KEY (`customer_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+  KEY `FK_appointments_customer_id` (`customer_id`),
+  KEY `FK_appointments_service` (`service_id`),
+  CONSTRAINT `FK_appointments_customer_id` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `FK_appointments_service` FOREIGN KEY (`service_id`) REFERENCES `services` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -269,8 +271,9 @@ CREATE TABLE `customers` (
   `company_id` int(11) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `FK_customers_company_id` (`company_id`),
+  KEY `IDX_name` (`name`),
   CONSTRAINT `FK_customers_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -363,4 +366,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-03-07 20:55:28
+-- Dump completed on 2025-03-11 23:13:41

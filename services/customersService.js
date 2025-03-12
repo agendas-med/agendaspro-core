@@ -94,6 +94,28 @@ let customersService = {
                 reject(error);
             });
         });
+    },
+    find: function (company_id, search_string) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `SELECT * FROM customers WHERE company_id = ? ${search_string != "***" ? `AND name LIKE "%${search_string}%" or id LIKE "%${search_string}%"` : ""}`, 
+                [company_id]
+            ).then((results) => {
+                let customers = results.map((customer) => {
+                    return {
+                        id: customer.id,
+                        name: customer.name,
+                        birthday: customer.birthday,
+                        tel: customer.tel,
+                        image: customer.image || ""
+                    }
+                })
+
+                resolve(customers);
+            }).catch((error) => {
+                reject(error);
+            });
+        })
     }
 }
 

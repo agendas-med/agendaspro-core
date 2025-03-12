@@ -51,4 +51,11 @@ router.get("/", login, (req, res) => {
     }).catch((error) => res.status(500).send(error));
 });
 
+router.post("/find", login, (req, res) => {
+    _customersService.find(req.headers['selected-company'], req.body.search_string).then((customers) => {
+        let response = functions.createResponse("Retorno dos clientes da empresa", customers, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => res.status(500).send(error));
+});
+
 module.exports = router;
