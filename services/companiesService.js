@@ -26,19 +26,22 @@ let companiesService = {
             ).then((results) => {
                 this.returnCompanyConfigurations(company_id, clearCache).then((results2) => {
                     this.returnCompanyRoles(company_id, clearCache).then((results3) => {
-                        let company = {
-                            id: results[0]?.id || null,
-                            name: results[0]?.name || "",
-                            address: results[0]?.address || "",
-                            zip_code: results[0]?.zip_code || "",
-                            business_type: results[0]?.business_type || "",
-                            city: results[0]?.city || "",
-                            state: results[0]?.state || "",
-                            configurations: results2,
-                            roles: results3
-                        }
-
-                        resolve(company);
+                        this.returnCompanyServices(company_id, clearCache).then((results4) => {
+                            let company = {
+                                id: results[0]?.id || null,
+                                name: results[0]?.name || "",
+                                address: results[0]?.address || "",
+                                zip_code: results[0]?.zip_code || "",
+                                business_type: results[0]?.business_type || "",
+                                city: results[0]?.city || "",
+                                state: results[0]?.state || "",
+                                configurations: results2,
+                                roles: results3,
+                                services: results4
+                            }
+    
+                            resolve(company);
+                        })
                     })
                 })
             })
@@ -726,6 +729,80 @@ let companiesService = {
                 reject(error);
             })
         })
+    },
+    createService: function (company_id, name, value, observations, duration) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO services (company_id, name, value, observations, duration)
+                    VALUES (?, ?, ?, ?, ?)
+                `,
+                [company_id, name, value, observations, duration]
+            ).then((results) => {
+                if (results.affectedRows === 0) {
+                    reject("Erro ao criar o serviço");
+                }
+                this.returnCompanyServices(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
+    returnCompanyServices: function (company_id, clearCache = false) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT id, name, value, observations, duration
+                    FROM services
+                    WHERE company_id = ?
+                `,
+                [company_id], !clearCache
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
+    editService: function (company_id, service_id, name, value, observations, duration) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE services
+                    SET name = ?, value = ?, observations = ?, duration = ?
+                    WHERE id = ? AND company_id = ?
+                `,
+                [name, value, observations, duration, service_id, company_id]
+            ).then((results) => {
+                if (results.affectedRows === 0) {
+                    reject("Erro ao atualizar o serviço");
+                }
+                this.returnCompanyServices(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
+    excludeService: function (company_id, service_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    DELETE FROM services
+                    WHERE id = ? AND company_id = ?
+                `,
+                [service_id, company_id]
+            ).then((results) => {
+                if (results.affectedRows === 0) {
+                    reject("Erro ao excluir o serviço");
+                }
+                this.returnCompanyServices(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        });
     }
 }
 

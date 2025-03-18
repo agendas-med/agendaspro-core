@@ -163,4 +163,52 @@ router.delete("/remove_user/:user_id", login, (req, res, next) => {
     })
 });
 
+router.post("/services", login, validate.validateRequest(validate.schemas.companies.createService), (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.createService(req.headers['selected-company'], req.body.name, req.body.value, req.body.observations, req.body.duration).then(() => {
+            let response = functions.createResponse("Serviço criado com sucesso", null, "POST", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
+router.get("/services", login, (req, res, next) => {
+    _companiesService.returnCompanyServices(req.headers['selected-company']).then((services) => {
+        let response = functions.createResponse("Serviços retornados com sucesso", services, "GET", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    });
+});
+
+router.post("/services/:id", login, validate.validateRequest(validate.schemas.companies.createService), (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.editService(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.observations, req.body.duration).then(() => {
+            let response = functions.createResponse("Serviço atualizado com sucesso", null, "POST", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
+router.delete("/services/:id", login, (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.excludeService(req.headers['selected-company'], req.params.id).then(() => {
+            let response = functions.createResponse("Serviço excluído com sucesso", null, "DELETE", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
 module.exports = router;
