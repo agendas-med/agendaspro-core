@@ -5,17 +5,31 @@ const emailTemplates = require("../templates/emailTemplates");
 let appointmentsService = {
     create: function (company_id, customer_id, customer_name, date, duration, observations, service) {
         return new Promise((resolve, reject) => {
+            // Primeiro, verifica se já existe um agendamento no mesmo horário para a empresa
             functions.executeSql(
                 `
-                INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, service)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                `, [company_id, customer_id, customer_name, date, duration, observations, service]
+                SELECT COUNT(*) AS total FROM appointments 
+                WHERE company_id = ? AND date = ?
+                `, [company_id, date]
             ).then((results) => {
-                if (results.affectedRows > 0) {
+                if (results[0].total > 0) {
+                    // Já existe um agendamento nesse horário
+                    reject("Já existe um agendamento para este horário.");
+                } else {
+                    // Nenhum agendamento no horário, pode inserir
+                    return functions.executeSql(
+                        `
+                        INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, service_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        `, [company_id, customer_id, customer_name, date, duration, observations, service]
+                    );
+                }
+            }).then((results) => {
+                if (results && results.affectedRows > 0) {
                     this.getAllByCompany(company_id, true);
                     resolve();
                 } else {
-                    reject("Ocorreu um erro ao cadastrar o agendamento");
+                    reject("Ocorreu um erro ao cadastrar o agendamento.");
                 }
             }).catch((error) => {
                 reject(error);
@@ -24,18 +38,32 @@ let appointmentsService = {
     },
     update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, service) {
         return new Promise((resolve, reject) => {
+            // Primeiro, verifica se já existe outro agendamento no mesmo horário para a empresa
             functions.executeSql(
                 `
-                UPDATE appointments
-                SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, service = ?
-                WHERE id = ? AND company_id = ?
-                `, [customer_id, customer_name, date, duration, observations, service, appointment_id, company_id]
+                SELECT COUNT(*) AS total FROM appointments 
+                WHERE company_id = ? AND date = ? AND id <> ?
+                `, [company_id, date, appointment_id]
             ).then((results) => {
-                if (results.affectedRows > 0) {
+                if (results[0].total > 0) {
+                    // Já existe um outro agendamento nesse horário
+                    reject("Já existe outro agendamento para este horário.");
+                } else {
+                    // Nenhum outro agendamento no horário, pode atualizar
+                    return functions.executeSql(
+                        `
+                        UPDATE appointments
+                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, service_id = ?
+                        WHERE id = ? AND company_id = ?
+                        `, [customer_id, customer_name, date, duration, observations, service, appointment_id, company_id]
+                    );
+                }
+            }).then((results) => {
+                if (results && results.affectedRows > 0) {
                     this.getAllByCompany(company_id, true);
                     resolve();
                 } else {
-                    reject("Nenhum agendamento foi atualizado");
+                    reject("Nenhum agendamento foi atualizado.");
                 }
             }).catch((error) => {
                 reject(error);
@@ -69,7 +97,7 @@ let appointmentsService = {
                        s.name AS service_name, 
                        SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
                 FROM appointments a
-                JOIN services s ON a.service = s.id
+                JOIN services s ON a.service_id = s.id
                 WHERE a.id = ? AND a.company_id = ?
                 `, [appointment_id, company_id]
             ).then((results) => {
@@ -102,7 +130,7 @@ let appointmentsService = {
                        s.name AS service_name, 
                        SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
                 FROM appointments a
-                JOIN services s ON a.service = s.id
+                INNER JOIN services s ON a.service_id = s.id
                 WHERE a.company_id = ?
                 `, [company_id]
             ).then((results) => {

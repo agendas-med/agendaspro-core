@@ -24,7 +24,7 @@ router.post("/", login, validate.validateRequest(validate.schemas.appointments.c
 });
 
 // Atualizar um agendamento
-router.patch("/:id", login, validate.validateRequest(validate.schemas.appointments.update), (req, res, next) => {
+router.patch("/:id", login, validate.validateRequest(validate.schemas.appointments.create), (req, res, next) => {
     _appointmentsService.update(
         req.params.id,
         req.headers['selected-company'],
