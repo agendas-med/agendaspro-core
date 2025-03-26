@@ -3,7 +3,7 @@ const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
 
 let appointmentsService = {
-    create: function (company_id, customer_id, customer_name, date, duration, observations, service) {
+    create: function (company_id, customer_id, customer_name, date, duration, observations, service, status) {
         return new Promise((resolve, reject) => {
             // Primeiro, verifica se já existe um agendamento no mesmo horário para a empresa
             functions.executeSql(
@@ -19,9 +19,9 @@ let appointmentsService = {
                     // Nenhum agendamento no horário, pode inserir
                     return functions.executeSql(
                         `
-                        INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, service_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        `, [company_id, customer_id, customer_name, date, duration, observations, service]
+                        INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, service_id, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        `, [company_id, customer_id, customer_name, date, duration, observations, service, status]
                     );
                 }
             }).then((results) => {
@@ -36,7 +36,7 @@ let appointmentsService = {
             });
         });
     },
-    update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, service) {
+    update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, service, status) {
         return new Promise((resolve, reject) => {
             // Primeiro, verifica se já existe outro agendamento no mesmo horário para a empresa
             functions.executeSql(
@@ -53,14 +53,15 @@ let appointmentsService = {
                     return functions.executeSql(
                         `
                         UPDATE appointments
-                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, service_id = ?
+                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, service_id = ?, status = ?
                         WHERE id = ? AND company_id = ?
-                        `, [customer_id, customer_name, date, duration, observations, service, appointment_id, company_id]
+                        `, [customer_id, customer_name, date, duration, observations, service, status, appointment_id, company_id]
                     );
                 }
             }).then((results) => {
                 if (results && results.affectedRows > 0) {
                     this.getAllByCompany(company_id, true);
+                    this.getById(appointment_id, company_id, true);
                     resolve();
                 } else {
                     reject("Nenhum agendamento foi atualizado.");
@@ -89,7 +90,7 @@ let appointmentsService = {
             });
         });
     },
-    getById: function (appointment_id, company_id) {
+    getById: function (appointment_id, company_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -99,7 +100,7 @@ let appointmentsService = {
                 FROM appointments a
                 JOIN services s ON a.service_id = s.id
                 WHERE a.id = ? AND a.company_id = ?
-                `, [appointment_id, company_id]
+                `, [appointment_id, company_id], !clearCache
             ).then((results) => {
                 if (results.length > 0) {
                     let appointment = results[0];
@@ -122,7 +123,7 @@ let appointmentsService = {
             });
         });
     },
-    getAllByCompany: function (company_id, refreshCache = false) {
+    getAllByCompany: function (company_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -132,7 +133,7 @@ let appointmentsService = {
                 FROM appointments a
                 INNER JOIN services s ON a.service_id = s.id
                 WHERE a.company_id = ?
-                `, [company_id]
+                `, [company_id], !clearCache
             ).then((results) => {
                 let appointments = results.map(appointment => {
                     let start = appointment.date;

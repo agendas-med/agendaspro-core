@@ -74,7 +74,14 @@ let customersService = {
     getAllByCompany: function (company_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
-                `SELECT * FROM customers WHERE company_id = ?`, 
+                `
+                    SELECT 
+                        c.*,
+                        (SELECT date FROM appointments a WHERE a.customer_id = c.id AND status <> "agendado" ORDER BY id DESC LIMIT 1) AS last_appointment,
+                        (SELECT date FROM appointments a WHERE a.customer_id = c.id AND status = "agendado" ORDER BY id DESC LIMIT 1) AS next_appointment
+                    FROM customers c 
+                    WHERE c.company_id = ?
+                `, 
                 [company_id], !clearCache
             ).then((results) => {
                 let customers = results.map((customer) => {
@@ -84,8 +91,8 @@ let customersService = {
                         birthday: customer.birthday,
                         tel: customer.tel,
                         image: customer.image || "",
-                        last_appointment: "",
-                        next_appointment: ""
+                        last_appointment: customer.last_appointment || "",
+                        next_appointment: customer.next_appointment || ""
                     }
                 })
 
