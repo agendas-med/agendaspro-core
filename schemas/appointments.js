@@ -35,8 +35,8 @@ let schema = {
             'number.integer': errors.integer.integer(),
             'any.required': errors.string.empty()
         }),
-        status: Joi.string().valid('agendado', 'iniciado', 'realizado').required().messages({
-            'any.only': 'O status deve ser "agendado", "iniciado" ou "realizado".',
+        status: Joi.string().valid('agendado', 'iniciado', 'realizado', 'cancelado').required().messages({
+            'any.only': 'O status deve ser "agendado", "iniciado", "realizado" ou "cancelado".',
             'any.required': errors.string.empty()
         })
     })

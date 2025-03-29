@@ -53,7 +53,7 @@ CREATE TABLE `appointments` (
   `observations` text DEFAULT NULL,
   `service_id` int(11) NOT NULL,
   `company_id` int(11) NOT NULL,
-  `status` enum('agendado','iniciado','realizado') NOT NULL DEFAULT 'agendado',
+  `status` enum('agendado','iniciado','realizado','cancelado') NOT NULL,
   PRIMARY KEY (`id`),
   KEY `FK_appointments_customer_id` (`customer_id`),
   KEY `FK_appointments_service` (`service_id`),
@@ -61,7 +61,7 @@ CREATE TABLE `appointments` (
   CONSTRAINT `FK_appointments_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
   CONSTRAINT `FK_appointments_customer_id` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_appointments_service` FOREIGN KEY (`service_id`) REFERENCES `services` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -370,4 +370,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-03-19 21:53:48
+-- Dump completed on 2025-03-29  1:02:24
