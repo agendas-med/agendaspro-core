@@ -14,7 +14,7 @@ router.post("/", login, validate.validateRequest(validate.schemas.appointments.c
         req.body.date,
         req.body.duration,
         req.body.observations,
-        req.body.service,
+        req.body.services,
         req.body.status
     ).then(() => {
         let response = functions.createResponse("Agendamento criado com sucesso", null, "POST", 200);
@@ -34,7 +34,7 @@ router.patch("/:id", login, validate.validateRequest(validate.schemas.appointmen
         req.body.date,
         req.body.duration,
         req.body.observations,
-        req.body.service,
+        req.body.services,
         req.body.status
     ).then(() => {
         let response = functions.createResponse("Agendamento atualizado com sucesso", null, "PATCH", 200);

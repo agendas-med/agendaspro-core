@@ -15,7 +15,7 @@ let financialService = {
                         c.image AS customer_image,
                         c.tel AS customer_tel,
                         a.date AS due_date,
-                        s.value,
+                        SUM(s.value) AS value,  -- Soma dos valores dos serviços
                         CASE 
                             WHEN a.date > CURDATE() OR a.date = CURDATE() THEN 'Em Aberto'
                             WHEN a.date < CURDATE() AND a.status = "realizado" THEN "Pago"
@@ -24,15 +24,19 @@ let financialService = {
                     FROM
                         appointments a
                     JOIN
-                        services s ON s.id = a.service_id
+                        appointment_services as aps ON aps.appointment_id = a.id  -- Relaciona os serviços do agendamento
+                    JOIN
+                        services s ON s.id = aps.service_id  -- Obtém os dados dos serviços
                     JOIN
                         customers c ON c.id = a.customer_id
                     WHERE
-                        a.company_id = ?
+                        a.company_id = ?  -- Filtro pela empresa
                     AND
-                        a.status <> "cancelado"
+                        a.status <> "cancelado"  -- Filtro para não incluir cancelados
+                    GROUP BY
+                        a.id, a.customer_id, a.customer_name, c.image, c.tel, a.date  -- Agrupa pelos campos selecionados
                     ORDER BY 
-                        status
+                        status;
 
                 `, [company_id], !clearCache
             ).then((results) => {

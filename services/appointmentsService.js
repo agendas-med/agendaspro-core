@@ -3,7 +3,7 @@ const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
 
 let appointmentsService = {
-    create: function (company_id, customer_id, customer_name, date, duration, observations, service, status) {
+    create: function (company_id, customer_id, customer_name, date, duration, observations, services, status) {
         return new Promise((resolve, reject) => {
             // Primeiro, verifica se já existe um agendamento no mesmo horário para a empresa
             functions.executeSql(
@@ -16,18 +16,19 @@ let appointmentsService = {
                     // Já existe um agendamento nesse horário
                     reject("Já existe um agendamento para este horário.");
                 } else {
-                    // Nenhum agendamento no horário, pode inserir
                     return functions.executeSql(
                         `
-                        INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, service_id, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        `, [company_id, customer_id, customer_name, date, duration, observations, service, status]
+                        INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        `, [company_id, customer_id, customer_name, date, duration, observations, status]
                     );
                 }
             }).then((results) => {
                 if (results && results.affectedRows > 0) {
-                    this.getAllByCompany(company_id, true);
-                    resolve();
+                    this.insertAppointmentServices(results.insertId, services).then(() => {
+                        this.getAllByCompany(company_id, true);
+                        resolve();
+                    });
                 } else {
                     reject("Ocorreu um erro ao cadastrar o agendamento.");
                 }
@@ -36,7 +37,68 @@ let appointmentsService = {
             });
         });
     },
-    update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, service, status) {
+    deleteAppointmentServices: function (appointment_id) {
+        return new Promise((resolve) => {
+            functions.executeSql(
+                `
+                    DELETE FROM
+                        appointment_services
+                    WHERE
+                        appointment_id = ?
+                `, [appointment_id]
+            ).then(() => {
+                resolve();
+            })
+        })
+    },
+    insertAppointmentServices: function (appointment_id, services) {
+        return new Promise((resolve) => {
+            this.deleteAppointmentServices(appointment_id).then(() => {
+                let inserts = [];
+
+                for (let i = 0; i < services.length; i++) {
+                    let currentService = services[i];
+                    
+                    inserts.push(
+                        `
+                            (${currentService.id}, ${appointment_id})
+                        `
+                    )
+                }
+
+                functions.executeSql(
+                    `
+                        INSERT INTO
+                            appointment_services
+                            (service_id, appointment_id)
+                        VALUES
+                            ${inserts.join(",")}
+                    `, []
+                ).then(() => {
+                    resolve();
+                })
+            })
+        })
+    },
+    getAppointmentServices: function (appointment_id) {
+        return new Promise((resolve) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        s.*
+                    FROM
+                        appointment_services aas
+                    INNER JOIN
+                        services s ON s.id = aas.service_id
+                    WHERE
+                        aas.appointment_id = ?
+                `, [appointment_id]
+            ).then((results) => {
+                resolve(results);
+            })
+        })
+    },
+    update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, services, status) {
         return new Promise((resolve, reject) => {
             // Primeiro, verifica se já existe outro agendamento no mesmo horário para a empresa
             functions.executeSql(
@@ -53,16 +115,18 @@ let appointmentsService = {
                     return functions.executeSql(
                         `
                         UPDATE appointments
-                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, service_id = ?, status = ?
+                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, status = ?
                         WHERE id = ? AND company_id = ?
-                        `, [customer_id, customer_name, date, duration, observations, service, status, appointment_id, company_id]
+                        `, [customer_id, customer_name, date, duration, observations, status, appointment_id, company_id]
                     );
                 }
             }).then((results) => {
                 if (results && results.affectedRows > 0) {
-                    this.getAllByCompany(company_id, true);
-                    this.getById(appointment_id, company_id, true);
-                    resolve();
+                    this.insertAppointmentServices(appointment_id, services).then(() => {
+                        this.getAllByCompany(company_id, true);
+                        this.getById(appointment_id, company_id, true);
+                        resolve();
+                    });
                 } else {
                     reject("Nenhum agendamento foi atualizado.");
                 }
@@ -75,13 +139,15 @@ let appointmentsService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                DELETE FROM appointments
-                WHERE id = ? AND company_id = ?
+                    DELETE FROM appointments
+                    WHERE id = ? AND company_id = ?
                 `, [appointment_id, company_id]
             ).then((results) => {
                 if (results.affectedRows > 0) {
-                    this.getAllByCompany(company_id, true);
-                    resolve();
+                    this.deleteAppointmentServices(appointment_id).then(() => {
+                        this.getAllByCompany(company_id, true);
+                        resolve();
+                    })
                 } else {
                     reject("Nenhum agendamento foi encontrado para excluir");
                 }
@@ -94,27 +160,30 @@ let appointmentsService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                SELECT a.*, 
-                       s.name AS service_name, 
-                       SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
-                FROM appointments a
-                JOIN services s ON a.service_id = s.id
-                WHERE a.id = ? AND a.company_id = ?
+                SELECT 
+                    *, 
+                    SUBSTRING_INDEX(customer_name, ' ', 1) AS first_name
+                FROM appointments 
+                WHERE id = ? AND company_id = ?
                 `, [appointment_id, company_id], !clearCache
             ).then((results) => {
                 if (results.length > 0) {
                     let appointment = results[0];
-    
-                    // Calcula o fim do evento somando a duração ao início
-                    let start = appointment.date;
-                    let end = new Date(new Date(start).getTime() + appointment.duration * 60000).toISOString();
-    
-                    resolve({
-                        ...appointment,
-                        start,
-                        end,
-                        title: `${appointment.service_name} - ${appointment.first_name}`
-                    });
+
+                    this.getAppointmentServices(appointment_id).then((services) => {
+                        appointment["services"] = services;
+
+                        // Calcula o fim do evento somando a duração ao início
+                        let start = appointment.date;
+                        let end = new Date(new Date(start).getTime() + appointment.duration * 60000).toISOString();
+        
+                        resolve({
+                            ...appointment,
+                            start,
+                            end,
+                            title: `${appointment.services[0]?.name || ""} - ${appointment.first_name}`
+                        });
+                    })
                 } else {
                     reject("Agendamento não encontrado");
                 }
@@ -127,27 +196,31 @@ let appointmentsService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                SELECT a.*, 
-                       s.name AS service_name, 
-                       SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
-                FROM appointments a
-                INNER JOIN services s ON a.service_id = s.id
-                WHERE a.company_id = ?
+                SELECT 
+                    *, 
+                    SUBSTRING_INDEX(customer_name, ' ', 1) AS first_name
+                FROM appointments
+                WHERE company_id = ?
                 `, [company_id], !clearCache
             ).then((results) => {
-                let appointments = results.map(appointment => {
+                let promises = results.map(async (appointment) => {
                     let start = appointment.date;
                     let end = new Date(new Date(start).getTime() + appointment.duration * 60000).toISOString();
-    
+                
+                    let services = await this.getAppointmentServices(appointment.id);
+                    appointment["services"] = services;
+                
                     return {
                         ...appointment,
                         start,
                         end,
-                        title: `${appointment.service_name} - ${appointment.first_name}`
+                        title: `${appointment.services[0]?.name || ""} - ${appointment.first_name}`
                     };
                 });
-    
-                resolve(appointments);
+                
+                Promise.all(promises).then((resolvedAppointments) => {
+                    resolve(resolvedAppointments);
+                });
             }).catch((error) => {
                 reject(error);
             });

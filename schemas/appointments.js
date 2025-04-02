@@ -20,19 +20,52 @@ let schema = {
             'string.max': errors.string.max(19),
             'any.required': errors.string.empty()
         }),
-        duration: Joi.string().valid(
-            "15", "30", "45", "60", "75", "90", "105", "120", 
-            "135", "150", "165", "180", "195", "210", "225", "240"
-        ).required().messages({
-            'any.only': errors.string.invalid(),
+        duration: Joi.number().integer().min(1).required().messages({
+            'number.base': errors.integer.base(),
+            'number.integer': errors.integer.integer(),
+            'number.min': "A duração do serviço deve ser no mínimo 1 minuto.",
             'any.required': errors.string.empty()
         }),
         observations: Joi.string().allow("").messages({
             'string.base': errors.string.base()
         }),
-        service: Joi.number().integer().required().messages({
-            'number.base': errors.integer.base(),
-            'number.integer': errors.integer.integer(),
+        services: Joi.array().items(
+            Joi.object({
+                id: Joi.number().integer().required().messages({
+                    'number.base': errors.integer.base(),
+                    'number.integer': errors.integer.integer(),
+                    'any.required': errors.string.empty()
+                }),
+                company_id: Joi.number().integer().allow(null).messages({
+                    'number.base': errors.integer.base(),
+                    'number.integer': errors.integer.integer()
+                }),
+                name: Joi.string().min(3).max(255).required().messages({
+                    'string.base': errors.string.empty(),
+                    'string.empty': errors.string.empty(),
+                    'string.min': errors.string.min(3),
+                    'string.max': errors.string.max(255),
+                    'any.required': errors.string.empty()
+                }),
+                value: Joi.number().precision(2).min(0).required().messages({
+                    'number.base': errors.integer.base(),
+                    'number.min': "O valor do serviço deve ser maior ou igual a 0.",
+                    'any.required': errors.string.empty()
+                }),
+                observations: Joi.string().allow(null, "").messages({
+                    'string.base': errors.string.empty()
+                }),
+                duration: Joi.number().integer().min(1).required().messages({
+                    'number.base': errors.integer.base(),
+                    'number.integer': errors.integer.integer(),
+                    'number.min': "A duração do serviço deve ser no mínimo 1 minuto.",
+                    'any.required': errors.string.empty()
+                })
+            }).messages({
+                'object.base': errors.object.base()
+            })
+        ).required().messages({
+            'array.base': errors.array.base(),
             'any.required': errors.string.empty()
         }),
         status: Joi.string().valid('agendado', 'iniciado', 'realizado', 'cancelado').required().messages({
