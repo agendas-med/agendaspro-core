@@ -72,10 +72,50 @@ router.get("/:id", login, (req, res, next) => {
 
 // Obter todos os agendamentos da empresa
 router.get("/", login, (req, res, next) => {
+    let today = req.query.today || null
+
     _appointmentsService.getAllByCompany(
-        req.headers['selected-company']
+        req.headers['selected-company'],
+        false,
+        today
     ).then((appointments) => {
         let response = functions.createResponse("Lista de agendamentos", appointments, "GET", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    });
+});
+
+router.post("/init/:appointment_id", login, (req, res, next) => {
+    _appointmentsService.init(
+        req.headers['selected-company'],
+        req.params.appointment_id
+    ).then(() => {
+        let response = functions.createResponse("Agendamento iniciado com sucesso", null, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    });
+});
+
+router.post("/stop/:appointment_id", login, (req, res, next) => {
+    _appointmentsService.stop(
+        req.headers['selected-company'],
+        req.params.appointment_id
+    ).then(() => {
+        let response = functions.createResponse("Agendamento concluído com sucesso", null, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    });
+});
+
+router.post("/cancel/:appointment_id", login, (req, res, next) => {
+    _appointmentsService.cancel(
+        req.headers['selected-company'],
+        req.params.appointment_id
+    ).then(() => {
+        let response = functions.createResponse("Agendamento cancelado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
         return res.status(500).send(error);

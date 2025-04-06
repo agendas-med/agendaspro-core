@@ -27,6 +27,7 @@ let appointmentsService = {
                 if (results && results.affectedRows > 0) {
                     this.insertAppointmentServices(results.insertId, services).then(() => {
                         this.getAllByCompany(company_id, true);
+                        this.getAllByCompany(company_id, true, true);
                         resolve();
                     });
                 } else {
@@ -124,6 +125,7 @@ let appointmentsService = {
                 if (results && results.affectedRows > 0) {
                     this.insertAppointmentServices(appointment_id, services).then(() => {
                         this.getAllByCompany(company_id, true);
+                        this.getAllByCompany(company_id, true, true);
                         this.getById(appointment_id, company_id, true);
                         resolve();
                     });
@@ -146,6 +148,7 @@ let appointmentsService = {
                 if (results.affectedRows > 0) {
                     this.deleteAppointmentServices(appointment_id).then(() => {
                         this.getAllByCompany(company_id, true);
+                        this.getAllByCompany(company_id, true, true);
                         resolve();
                     })
                 } else {
@@ -161,10 +164,12 @@ let appointmentsService = {
             functions.executeSql(
                 `
                 SELECT 
-                    *, 
-                    SUBSTRING_INDEX(customer_name, ' ', 1) AS first_name
-                FROM appointments 
-                WHERE id = ? AND company_id = ?
+                    c.image,
+                    a.*, 
+                    SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name                    
+                FROM appointments a
+                INNER JOIN customers c ON c.id = a.customer_id
+                WHERE a.id = ? AND a.company_id = ?
                 `, [appointment_id, company_id], !clearCache
             ).then((results) => {
                 if (results.length > 0) {
@@ -192,15 +197,18 @@ let appointmentsService = {
             });
         });
     },
-    getAllByCompany: function (company_id, clearCache = false) {
+    getAllByCompany: function (company_id, clearCache = false, today = null) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                SELECT 
-                    *, 
-                    SUBSTRING_INDEX(customer_name, ' ', 1) AS first_name
-                FROM appointments
-                WHERE company_id = ?
+                    SELECT 
+                        c.image,
+                        a.*, 
+                        SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
+                    FROM appointments a
+                    INNER JOIN customers c ON c.id = a.customer_id
+                    WHERE a.company_id = ?
+                        ${today ? "AND DATE(a.date) = CURDATE() ORDER BY FIELD(status, 'iniciado', 'agendado', 'realizado'), a.date DESC" : ""}
                 `, [company_id], !clearCache
             ).then((results) => {
                 let promises = results.map(async (appointment) => {
@@ -225,7 +233,67 @@ let appointmentsService = {
                 reject(error);
             });
         });
-    }    
+    },
+    init: function (company_id, appointment_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE 
+                        appointments
+                    SET
+                        status = 'iniciado'
+                    WHERE 
+                        company_id = ? AND id = ?                        
+                `, [company_id, appointment_id]
+            ).then(() => {
+                this.getAllByCompany(company_id, true);
+                this.getAllByCompany(company_id, true, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        })
+    },
+    stop: function (company_id, appointment_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE 
+                        appointments
+                    SET
+                        status = 'realizado'
+                    WHERE 
+                        company_id = ? AND id = ?                        
+                `, [company_id, appointment_id]
+            ).then(() => {
+                this.getAllByCompany(company_id, true);
+                this.getAllByCompany(company_id, true, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        })
+    },
+    cancel: function (company_id, appointment_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE 
+                        appointments
+                    SET
+                        status = 'cancelado'
+                    WHERE 
+                        company_id = ? AND id = ?                        
+                `, [company_id, appointment_id]
+            ).then(() => {
+                this.getAllByCompany(company_id, true);
+                this.getAllByCompany(company_id, true, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        })
+    }      
 }
 
 module.exports = appointmentsService;
