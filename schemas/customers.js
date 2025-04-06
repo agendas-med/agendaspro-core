@@ -13,6 +13,13 @@ let schema = {
             'string.max': errors.string.max(255),
             'any.required': errors.string.empty()
         }),
+        cpf: Joi.string()
+        .pattern(/^\d{11}$/)
+        .messages({
+          'string.base': errors.string.base(),
+          'string.empty': errors.string.empty(),
+          'string.pattern.base': 'O CPF deve conter exatamente 11 dígitos numéricos.',
+        }),
         birthday: Joi.string().min(10).max(19).required().messages({
             'string.empty': errors.string.empty(),
             'string.min': errors.string.min(10),
@@ -24,7 +31,7 @@ let schema = {
             'string.min': errors.string.min(10),
             'string.max': errors.string.max(19)
         }),
-        next_appointment: Joi.string().min(10).max(19).allow("").messages({
+        next_appointment: Joi.string().min(10).max(24).allow("").messages({
             'string.empty': errors.string.empty(),
             'string.min': errors.string.min(10),
             'string.max': errors.string.max(19)

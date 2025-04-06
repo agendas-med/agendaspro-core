@@ -3,13 +3,13 @@ const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
 
 let customersService = {
-    create: function (company_id, name, birthday, tel, image) {
+    create: function (company_id, name, cpf, birthday, tel, image) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                INSERT INTO customers (name, birthday, tel, image, company_id)
-                VALUES (?, ?, ?, ?, ?)
-                `, [name, birthday, tel, image, company_id]
+                INSERT INTO customers (name, cpf, birthday, tel, image, company_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                `, [name, cpf, birthday, tel, image, company_id]
             ).then((results) => {
                 if (results.affectedRows > 0) {
                     this.getAllByCompany(company_id, true);
@@ -39,14 +39,14 @@ let customersService = {
             });
         });
     },
-    update: function (company_id, customer_id, name, birthday, tel, image) {
+    update: function (company_id, customer_id, name, cpf, birthday, tel, image) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                 UPDATE customers 
-                SET name = ?, birthday = ?, tel = ?, image = ?
+                SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?
                 WHERE id = ?
-                `, [name, birthday, tel, image, customer_id]
+                `, [name, cpf, birthday, tel, image, customer_id]
             ).then(() => {
                 this.getAllByCompany(company_id, true);
                 resolve();
@@ -88,6 +88,7 @@ let customersService = {
                     return {
                         id: customer.id,
                         name: customer.name,
+                        cpf: customer.cpf,
                         birthday: customer.birthday,
                         tel: customer.tel,
                         image: customer.image || "",
@@ -112,6 +113,7 @@ let customersService = {
                     return {
                         id: customer.id,
                         name: customer.name,
+                        cpf: customer.cpf,
                         birthday: customer.birthday,
                         tel: customer.tel,
                         image: customer.image || ""
