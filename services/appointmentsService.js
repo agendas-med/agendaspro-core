@@ -241,7 +241,7 @@ let appointmentsService = {
                     UPDATE 
                         appointments
                     SET
-                        status = 'iniciado'
+                        status = 'iniciado', checkin = now()
                     WHERE 
                         company_id = ? AND id = ?                        
                 `, [company_id, appointment_id]
@@ -261,7 +261,7 @@ let appointmentsService = {
                     UPDATE 
                         appointments
                     SET
-                        status = 'realizado'
+                        status = 'realizado', checkout = now()
                     WHERE 
                         company_id = ? AND id = ?                        
                 `, [company_id, appointment_id]

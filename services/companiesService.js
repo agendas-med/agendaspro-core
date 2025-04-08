@@ -268,11 +268,6 @@ let companiesService = {
     },
     editCompanyConfigurations: function (company_id, configurations) {
         return new Promise((resolve, reject) => {
-            for (let i = 0; i < configurations.notifications.length; i++) {
-                let currentPreference = configurations.notifications[i];
-                functions.insertCompanyPreference(company_id, currentPreference.code, currentPreference.active ? 1 : 0);
-            }
-
             functions.executeSql(
                 `
                     DELETE FROM
@@ -803,6 +798,31 @@ let companiesService = {
                 reject(error);
             });
         });
+    },
+    getPreferences: function (company_id, clearCache = false) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        *,
+                        (SELECT active FROM config_companies_preferences ccp WHERE ccp.preference_id = p.id) AS active
+                    FROM
+                        preferences p
+                `, [company_id], !clearCache
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            });
+        })
+    },
+    setPreferences: function (company_id, preferences) {
+        for (let i = 0; i < preferences.length; i++) {
+            let currentPreference = preferences[i];
+            functions.insertCompanyPreference(company_id, currentPreference.code, !currentPreference.active ? 0 : 1);
+        }
+
+        this.getPreferences(company_id, true);
     }
 }
 

@@ -211,4 +211,28 @@ router.delete("/services/:id", login, (req, res, next) => {
     });
 });
 
+router.get("/preferences", login, (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.getPreferences(req.headers['selected-company']).then((results) => {
+            let response = functions.createResponse("Retorno das preferências", results, "GET", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
+router.post("/preferences", login, (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.setPreferences(req.headers['selected-company'], req.body.preferences);
+
+        let response = functions.createResponse("Preferências atualizadas com sucesso", null, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
 module.exports = router;

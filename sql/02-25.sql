@@ -22,4 +22,7 @@ insert into preferences (code, name)
 values
 ("notificate_scheduling", "Agendamentos realizados"),
 ("notificate_in_app_payment", "Pagamentos in-app"),
-("notificate_scheduling_cancelation", "Agendamentos cancelados");
+("notificate_scheduling_cancelation", "Agendamentos cancelados"),
+("auto_finish_appointments", "Finalizar agendamentos automaticamente")
+
+SET time_zone = '-03:00'
