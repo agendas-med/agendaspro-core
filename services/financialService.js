@@ -15,36 +15,35 @@ let financialService = {
                         c.image AS customer_image,
                         c.tel AS customer_tel,
                         a.date AS due_date,
-                        SUM(s.value) AS value,  -- Soma dos valores dos serviços
+                        SUM(s.value) AS value,
                         CASE 
-                            WHEN a.date > CURDATE() OR a.date = CURDATE() THEN 'Em Aberto'
-                            WHEN a.date < CURDATE() AND a.status = "realizado" THEN "Pago"
-                            ELSE 'Atrasado'
+                            WHEN a.canceled = 0 AND (a.checkin IS NOT NULL AND a.checkout IS NOT NULL) AND a.date <= CURDATE() THEN "Pago"
+                            WHEN a.date >= CURDATE() THEN "Em Aberto"
+                            ELSE "Atrasado"
                         END AS status
                     FROM
                         appointments a
                     JOIN
-                        appointment_services as aps ON aps.appointment_id = a.id  -- Relaciona os serviços do agendamento
+                        appointment_services aps ON aps.appointment_id = a.id
                     JOIN
-                        services s ON s.id = aps.service_id  -- Obtém os dados dos serviços
+                        services s ON s.id = aps.service_id
                     JOIN
                         customers c ON c.id = a.customer_id
                     WHERE
-                        a.company_id = ?  -- Filtro pela empresa
-                    AND
-                        a.status <> "cancelado"  -- Filtro para não incluir cancelados
+                        a.company_id = ?
+                        AND a.canceled = 0
                     GROUP BY
-                        a.id, a.customer_id, a.customer_name, c.image, c.tel, a.date  -- Agrupa pelos campos selecionados
+                        a.id, a.customer_id, a.customer_name, c.image, c.tel, a.date
                     ORDER BY 
                         status;
-
-                `, [company_id], !clearCache
+                `,
+                [company_id], !clearCache
             ).then((results) => {
                 resolve(results);
             }).catch((error) => {
                 reject(error);
-            })
-        })
+            });
+        });
     }
 }
 

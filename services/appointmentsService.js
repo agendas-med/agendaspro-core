@@ -5,7 +5,21 @@ const emailTemplates = require("../templates/emailTemplates");
 let appointmentsService = {
     create: function (company_id, customer_id, customer_name, date, duration, observations, services, status) {
         return new Promise((resolve, reject) => {
-            // Primeiro, verifica se já existe um agendamento no mesmo horário para a empresa
+            // Define os valores para os campos checkin, checkout e canceled com base no status
+            let checkin = null;
+            let checkout = null;
+            let canceled = 0;
+    
+            if (status === "cancelado") {
+                canceled = 1;
+            } else if (status === "iniciado") {
+                checkin = new Date();
+            } else if (status === "realizado") {
+                checkin = new Date();
+                checkout = new Date();
+            } // agendado já é o default: nulls e canceled = 0
+    
+            // Verifica se já existe um agendamento nesse horário para a empresa
             functions.executeSql(
                 `
                 SELECT COUNT(*) AS total FROM appointments 
@@ -13,14 +27,24 @@ let appointmentsService = {
                 `, [company_id, date]
             ).then((results) => {
                 if (results[0].total > 0) {
-                    // Já existe um agendamento nesse horário
                     reject("Já existe um agendamento para este horário.");
                 } else {
                     return functions.executeSql(
                         `
-                        INSERT INTO appointments (company_id, customer_id, customer_name, date, duration, observations, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        `, [company_id, customer_id, customer_name, date, duration, observations, status]
+                        INSERT INTO appointments 
+                            (company_id, customer_id, customer_name, date, duration, observations, checkin, checkout, canceled)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `, [
+                            company_id,
+                            customer_id,
+                            customer_name,
+                            date,
+                            duration,
+                            observations,
+                            checkin,
+                            checkout,
+                            canceled
+                        ]
                     );
                 }
             }).then((results) => {
@@ -37,7 +61,7 @@ let appointmentsService = {
                 reject(error);
             });
         });
-    },
+    },    
     deleteAppointmentServices: function (appointment_id) {
         return new Promise((resolve) => {
             functions.executeSql(
@@ -101,7 +125,22 @@ let appointmentsService = {
     },
     update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, services, status) {
         return new Promise((resolve, reject) => {
-            // Primeiro, verifica se já existe outro agendamento no mesmo horário para a empresa
+            // Define os valores que serão passados para o UPDATE
+            let checkin = null;
+            let checkout = null;
+            let canceled = 0;
+    
+            // Lógica para atualizar os campos com base no status
+            if (status === "cancelado") {
+                canceled = 1;
+            } else if (status === "iniciado") {
+                checkin = new Date(); // checkin agora
+            } else if (status === "realizado") {
+                checkin = new Date(); // se estiver realizando agora, atribuímos ambos
+                checkout = new Date();
+            } // status "agendado" já está coberto com tudo NULL e canceled = 0
+    
+            // Verifica se já existe outro agendamento no mesmo horário
             functions.executeSql(
                 `
                 SELECT COUNT(*) AS total FROM appointments 
@@ -109,16 +148,25 @@ let appointmentsService = {
                 `, [company_id, date, appointment_id]
             ).then((results) => {
                 if (results[0].total > 0) {
-                    // Já existe um outro agendamento nesse horário
                     reject("Já existe outro agendamento para este horário.");
                 } else {
-                    // Nenhum outro agendamento no horário, pode atualizar
                     return functions.executeSql(
                         `
                         UPDATE appointments
-                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, status = ?
+                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, checkin = ?, checkout = ?, canceled = ?
                         WHERE id = ? AND company_id = ?
-                        `, [customer_id, customer_name, date, duration, observations, status, appointment_id, company_id]
+                        `, [
+                            customer_id,
+                            customer_name,
+                            date,
+                            duration,
+                            observations,
+                            checkin,
+                            checkout,
+                            canceled,
+                            appointment_id,
+                            company_id
+                        ]
                     );
                 }
             }).then((results) => {
@@ -167,7 +215,7 @@ let appointmentsService = {
                     c.image,
                     a.*, 
                     SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name                    
-                FROM appointments a
+                FROM appointment_status_view a
                 INNER JOIN customers c ON c.id = a.customer_id
                 WHERE a.id = ? AND a.company_id = ?
                 `, [appointment_id, company_id], !clearCache
@@ -200,12 +248,20 @@ let appointmentsService = {
     getAllByCompany: function (company_id, clearCache = false, today = null) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
-                `
+                `                 
                     SELECT 
+                        a.id,
+                        a.customer_id,
+                        a.customer_name,
+                        a.date,
+                        a.duration,
+                        a.checkin,
+                        a.checkout,
+                        a.canceled,
+                        a.status,
                         c.image,
-                        a.*, 
                         SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
-                    FROM appointments a
+                    FROM appointment_status_view a
                     INNER JOIN customers c ON c.id = a.customer_id
                     WHERE a.company_id = ?
                         ${today ? "AND DATE(a.date) = CURDATE() ORDER BY FIELD(status, 'iniciado', 'agendado', 'realizado'), a.date DESC" : ""}
@@ -241,7 +297,7 @@ let appointmentsService = {
                     UPDATE 
                         appointments
                     SET
-                        status = 'iniciado', checkin = now()
+                        checkin = now()
                     WHERE 
                         company_id = ? AND id = ?                        
                 `, [company_id, appointment_id]
@@ -261,7 +317,7 @@ let appointmentsService = {
                     UPDATE 
                         appointments
                     SET
-                        status = 'realizado', checkout = now()
+                        checkout = now()
                     WHERE 
                         company_id = ? AND id = ?                        
                 `, [company_id, appointment_id]
@@ -281,7 +337,7 @@ let appointmentsService = {
                     UPDATE 
                         appointments
                     SET
-                        status = 'cancelado'
+                        canceled = 1
                     WHERE 
                         company_id = ? AND id = ?                        
                 `, [company_id, appointment_id]

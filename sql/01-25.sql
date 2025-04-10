@@ -53,8 +53,30 @@ CREATE TABLE `appointment_services` (
   KEY `FK_appointment_services_appointment_id` (`appointment_id`),
   CONSTRAINT `FK_appointment_services_appointment_id` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`),
   CONSTRAINT `FK_appointment_services_service_id` FOREIGN KEY (`service_id`) REFERENCES `services` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=38 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=88 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Temporary table structure for view `appointment_status_view`
+--
+
+DROP TABLE IF EXISTS `appointment_status_view`;
+/*!50001 DROP VIEW IF EXISTS `appointment_status_view`*/;
+SET @saved_cs_client     = @@character_set_client;
+SET character_set_client = utf8;
+/*!50001 CREATE VIEW `appointment_status_view` AS SELECT 
+ 1 AS `id`,
+ 1 AS `customer_id`,
+ 1 AS `customer_name`,
+ 1 AS `date`,
+ 1 AS `duration`,
+ 1 AS `observations`,
+ 1 AS `company_id`,
+ 1 AS `checkin`,
+ 1 AS `checkout`,
+ 1 AS `canceled`,
+ 1 AS `status`*/;
+SET character_set_client = @saved_cs_client;
 
 --
 -- Table structure for table `appointments`
@@ -71,15 +93,15 @@ CREATE TABLE `appointments` (
   `duration` int(11) NOT NULL,
   `observations` text DEFAULT NULL,
   `company_id` int(11) NOT NULL,
-  `status` enum('agendado','iniciado','realizado','cancelado') NOT NULL,
   `checkin` datetime DEFAULT NULL,
   `checkout` datetime DEFAULT NULL,
+  `canceled` int(11) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `FK_appointments_customer_id` (`customer_id`),
   KEY `FK_appointments_company_id` (`company_id`),
   CONSTRAINT `FK_appointments_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
   CONSTRAINT `FK_appointments_customer_id` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -380,6 +402,24 @@ CREATE TABLE `versaodb` (
 --
 -- Dumping routines for database 'agendaspro_db'
 --
+
+--
+-- Final view structure for view `appointment_status_view`
+--
+
+/*!50001 DROP VIEW IF EXISTS `appointment_status_view`*/;
+/*!50001 SET @saved_cs_client          = @@character_set_client */;
+/*!50001 SET @saved_cs_results         = @@character_set_results */;
+/*!50001 SET @saved_col_connection     = @@collation_connection */;
+/*!50001 SET character_set_client      = utf8mb4 */;
+/*!50001 SET character_set_results     = utf8mb4 */;
+/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
+/*!50001 CREATE ALGORITHM=UNDEFINED */
+/*!50013 DEFINER=`root`@`%` SQL SECURITY DEFINER */
+/*!50001 VIEW `appointment_status_view` AS select `a`.`id` AS `id`,`a`.`customer_id` AS `customer_id`,`a`.`customer_name` AS `customer_name`,`a`.`date` AS `date`,`a`.`duration` AS `duration`,`a`.`observations` AS `observations`,`a`.`company_id` AS `company_id`,`a`.`checkin` AS `checkin`,`a`.`checkout` AS `checkout`,`a`.`canceled` AS `canceled`,case when `a`.`canceled` = 1 then 'cancelado' when `a`.`checkin` is not null and `a`.`checkout` is not null then 'realizado' when `a`.`checkin` is not null and exists(select 1 from (`config_companies_preferences` `ccp` join `preferences` `p` on(`p`.`id` = `ccp`.`preference_id`)) where `ccp`.`company_id` = `a`.`company_id` and `p`.`code` = 'auto_finish_appointments' limit 1) and current_timestamp() >= `a`.`checkin` + interval `a`.`duration` minute then 'realizado' when `a`.`checkin` is not null then 'iniciado' else 'agendado' end AS `status` from `appointments` `a` */;
+/*!50001 SET character_set_client      = @saved_cs_client */;
+/*!50001 SET character_set_results     = @saved_cs_results */;
+/*!50001 SET collation_connection      = @saved_col_connection */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
@@ -390,4 +430,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-04-07 22:11:36
+-- Dump completed on 2025-04-10  0:39:23

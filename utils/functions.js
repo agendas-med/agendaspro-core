@@ -21,6 +21,8 @@ let functions = {
                         reject(error);
                         return;
                     }
+
+                    conn.query("SET time_zone = '-03:00';");
         
                     conn.query(query, queryParams, (err, results) => {
                         conn.release();
