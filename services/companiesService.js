@@ -725,14 +725,14 @@ let companiesService = {
             })
         })
     },
-    createService: function (company_id, name, value, observations, duration) {
+    createService: function (company_id, name, value, cost, observations, duration) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                    INSERT INTO services (company_id, name, value, observations, duration)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO services (company_id, name, value, cost, observations, duration)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 `,
-                [company_id, name, value, observations, duration]
+                [company_id, name, value, cost, observations, duration]
             ).then((results) => {
                 if (results.affectedRows === 0) {
                     reject("Erro ao criar o serviço");
@@ -748,7 +748,7 @@ let companiesService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                    SELECT id, name, value, observations, duration
+                    SELECT id, name, value, cost, observations, duration
                     FROM services
                     WHERE company_id = ?
                 `,
@@ -760,15 +760,15 @@ let companiesService = {
             });
         });
     },
-    editService: function (company_id, service_id, name, value, observations, duration) {
+    editService: function (company_id, service_id, name, value, cost, observations, duration) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     UPDATE services
-                    SET name = ?, value = ?, observations = ?, duration = ?
+                    SET name = ?, value = ?, cost = ?, observations = ?, duration = ?
                     WHERE id = ? AND company_id = ?
                 `,
-                [name, value, observations, duration, service_id, company_id]
+                [name, value, cost, observations, duration, service_id, company_id]
             ).then((results) => {
                 if (results.affectedRows === 0) {
                     reject("Erro ao atualizar o serviço");

@@ -165,7 +165,7 @@ router.delete("/remove_user/:user_id", login, (req, res, next) => {
 
 router.post("/services", login, validate.validateRequest(validate.schemas.companies.createService), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.createService(req.headers['selected-company'], req.body.name, req.body.value, req.body.observations, req.body.duration).then(() => {
+        _companiesService.createService(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration).then(() => {
             let response = functions.createResponse("Serviço criado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {
@@ -187,7 +187,7 @@ router.get("/services", login, (req, res, next) => {
 
 router.post("/services/:id", login, validate.validateRequest(validate.schemas.companies.createService), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.editService(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.observations, req.body.duration).then(() => {
+        _companiesService.editService(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration).then(() => {
             let response = functions.createResponse("Serviço atualizado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {

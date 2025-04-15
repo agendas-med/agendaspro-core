@@ -48,7 +48,7 @@ router.get("/", login, (req, res) => {
     _customersService.getAllByCompany(req.headers['selected-company']).then((customers) => {
         let response = functions.createResponse("Retorno dos clientes da empresa", customers, "GET", 200);
         return res.status(200).send(response);
-    }).catch((error) => res.status(500).send(error));
+    }).catch((error) => {console.log(error); res.status(500).send(error)});
 });
 
 router.post("/find", login, (req, res) => {

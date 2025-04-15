@@ -53,7 +53,7 @@ CREATE TABLE `appointment_services` (
   KEY `FK_appointment_services_appointment_id` (`appointment_id`),
   CONSTRAINT `FK_appointment_services_appointment_id` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`),
   CONSTRAINT `FK_appointment_services_service_id` FOREIGN KEY (`service_id`) REFERENCES `services` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=88 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=92 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -352,6 +352,7 @@ CREATE TABLE `services` (
   `observations` text DEFAULT NULL,
   `value` float NOT NULL,
   `company_id` int(11) NOT NULL,
+  `cost` float NOT NULL,
   PRIMARY KEY (`id`),
   KEY `FK_services_company_id` (`company_id`),
   CONSTRAINT `FK_services_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
@@ -430,4 +431,4 @@ CREATE TABLE `versaodb` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-04-10  0:39:23
+-- Dump completed on 2025-04-14 22:46:20

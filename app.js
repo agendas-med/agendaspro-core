@@ -10,6 +10,7 @@ const companiesRoute = require('./routes/companies');
 const customersRoute = require('./routes/customers');
 const appointmentsRoute = require('./routes/appointments');
 const financialRoute = require('./routes/financial');
+const reportsRoute = require("./routes/reports");
 
 app.use(morgan('dev'));
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -38,6 +39,7 @@ app.use('/companies', companiesRoute);
 app.use('/customers', customersRoute);
 app.use("/appointments", appointmentsRoute);
 app.use("/financial", financialRoute);
+app.use("/reports", reportsRoute);
 
 app.use('/public', express.static('public'));
 
