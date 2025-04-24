@@ -36,6 +36,7 @@ let reportsService = {
                         SELECT MONTH(date) AS chave, COUNT(*) AS total
                         FROM appointment_status_view
                         WHERE YEAR(date) = ? AND canceled = 0 AND company_id = ?
+                        AND status = "realizado"
                         GROUP BY MONTH(date)
                     `;
                     queryParams = [dataBase.year(), company_id];
@@ -46,6 +47,7 @@ let reportsService = {
                         SELECT WEEKDAY(date) AS chave, COUNT(*) AS total
                         FROM appointment_status_view
                         WHERE date BETWEEN ? AND ? AND canceled = 0 AND company_id = ?
+                        AND status = "realizado"
                         GROUP BY WEEKDAY(date)
                     `;
                     queryParams = [
@@ -163,7 +165,7 @@ let reportsService = {
     
                     results.forEach(row => {
                         let date;
-                        
+
                         if (competence === 'anual') {
                             let [year, month] = row.periodo.split('-').map(Number);
                             date = new Date(year, month - 1);

@@ -17,12 +17,12 @@ let financialService = {
                         a.date AS due_date,
                         SUM(s.value) AS value,
                         CASE 
-                            WHEN a.canceled = 0 AND (a.checkin IS NOT NULL AND a.checkout IS NOT NULL) AND a.date <= CURDATE() THEN "Pago"
+                            WHEN a.canceled = 0 AND a.status = "realizado" AND a.date <= CURDATE() THEN "Pago"
                             WHEN a.date >= CURDATE() THEN "Em Aberto"
                             ELSE "Atrasado"
                         END AS status
                     FROM
-                        appointments a
+                        appointment_status_view a
                     JOIN
                         appointment_services aps ON aps.appointment_id = a.id
                     JOIN
