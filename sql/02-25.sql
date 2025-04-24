@@ -20,9 +20,9 @@ INSERT INTO business_types (name) VALUES
 
 insert into preferences (code, name)
 values
-("notificate_scheduling", "Agendamentos realizados"),
-("notificate_in_app_payment", "Pagamentos in-app"),
-("notificate_scheduling_cancelation", "Agendamentos cancelados"),
+("notificate_scheduling", "Notificar agendamentos realizados"),
+("notificate_in_app_payment", "Aceitar pagamento in-app"),
+("notificate_scheduling_cancelation", "Notificar agendamentos cancelados"),
 ("auto_finish_appointments", "Finalizar agendamentos automaticamente")
 
 SET time_zone = '-03:00'
