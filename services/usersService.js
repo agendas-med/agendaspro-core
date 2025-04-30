@@ -98,43 +98,65 @@ let usersService = {
             })
         })
     },
-    returnUser: function (user_id, clearCache = false) {
+    returnUser: function (user_id, company_id, clearCache = false) {
+        console.log(company_id)
         return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                    SELECT
-                        id,
-                        name,
-                        email,
-                        url_photo,
-                        tel,
-                        zip_code,
-                        address,
-                        city,
-                        state
-                    FROM
-                        users 
-                    WHERE
-                        id = ?
-                `, [user_id], !clearCache, 60
-            ).then((results) => {
-                this.returnUserCompanies(user_id).then((results2) => {
+            let companySQL = `
+                SELECT
+                    c.id
+                FROM
+                    companies c
+                INNER JOIN
+                    company_members cm ON cm.company_id = c.id
+                WHERE
+                    cm.user_id = ${user_id}
+            `;
 
-                    let user = {
-                        id: results[0].id,
-                        name: results[0].name,
-                        email: results[0].email,
-                        url_photo: results[0].url_photo,
-                        tel: results[0].tel,
-                        zip_code: results[0].zip_code,
-                        address: results[0].address,
-                        city: results[0].city,
-                        state: results[0].state,
-                        country: results[0].country,
-                        companies: results2
-                    }
+            functions.executeSql(companySQL, []).then((companies) => {
+                if (!company_id) {
+                    company_id = companies[0].id;
+                }
 
-                    resolve(user);
+                functions.executeSql(
+                    `
+                        SELECT
+                            u.id,
+                            u.name,
+                            u.email,
+                            u.url_photo,
+                            u.tel,
+                            u.zip_code,
+                            u.address,
+                            u.city,
+                            u.state,
+                            (SELECT ccr.permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ? AND cur.user_id = ?) AS permission
+                        FROM
+                            users u
+                        WHERE
+                            u.id = ?
+                    `, [company_id, user_id, user_id], !clearCache, 60
+                ).then((results) => {
+                    this.returnUserCompanies(user_id).then((results2) => {
+    
+                        let user = {
+                            id: results[0].id,
+                            name: results[0].name,
+                            email: results[0].email,
+                            url_photo: results[0].url_photo,
+                            tel: results[0].tel,
+                            zip_code: results[0].zip_code,
+                            address: results[0].address,
+                            city: results[0].city,
+                            state: results[0].state,
+                            country: results[0].country,
+                            companies: results2,
+                            permission: results[0].permission
+                        }
+    
+                        resolve(user);
+                    }).catch((error) => {
+                        reject(error);
+                    })
                 }).catch((error) => {
                     reject(error);
                 })
@@ -178,7 +200,7 @@ let usersService = {
                         (?, ?)
                 `, [user_id, company_id]
             ).then(() => {
-                this.returnUser(user_id, true);
+                this.returnUser(user_id, company_id, true);
                 resolve();
             }).catch((error) => {
                 reject(error);
