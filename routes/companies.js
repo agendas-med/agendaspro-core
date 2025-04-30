@@ -133,7 +133,7 @@ router.post("/change_user_role", login, validate.validateRequest(validate.schema
 });
 
 router.post("/find_user_by_token", (req, res, next) => {
-    _companiesService.findUserByToken(req.body.token).then((results) => {
+    _companiesService.findUserByToken(req.body.token, req.body.email).then((results) => {
         let response = functions.createResponse("Verificação de existência do usuário", results, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
@@ -142,7 +142,7 @@ router.post("/find_user_by_token", (req, res, next) => {
 });
 
 router.post("/enter_company", (req, res, next) => {
-    _companiesService.enterCompany(req.body.token).then(() => {
+    _companiesService.enterCompany(req.body.token, req.body.email).then(() => {
         let response = functions.createResponse("Acesso à empresa liberado", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {

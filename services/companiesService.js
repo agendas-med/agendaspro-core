@@ -386,51 +386,51 @@ let companiesService = {
                 this.checkIfExistInvite(company_id, requested_user_email).then((results3) => {
                     if (results3.length > 0) {
                         reject("Este usuário já foi convidado para esta empresa");
-                    }
-
-                    _usersService.checkIfUserExists(requested_user_email).then((results) => {
-                        let invited_user = results.user?.email;
+                    } else {
+                        _usersService.checkIfUserExists(requested_user_email).then((results) => {
+                            let invited_user = results.user?.email;
+            
+                            if (!results.exist) {
+                                invited_user = requested_user_email;
+                            }
         
-                        if (!results.exist) {
-                            invited_user = requested_user_email;
-                        }
-    
-                        let token = functions.generateToken();
-                        
-                        functions.executeSql(
-                            `
-                                INSERT INTO
-                                    company_invitations
-                                    (invited_user, company_id, invited_by, token, role_id)
-                                VALUES
-                                    (?, ?, ?, ?, ?)
-                            `, [invited_user, company_id, request_user, token, role_id]
-                        ).then(() => {
+                            let token = functions.generateToken();
+                            
                             functions.executeSql(
                                 `
-                                    SELECT
-                                        name
-                                    FROM
-                                        companies
-                                    WHERE 
-                                        id = ?
-                                `, [company_id]
-                            ).then((results2) => {
-                                let company_name = results2[0].name;
-                                let link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}`;
-                                let emailHtml = emailTemplates.inviteUser(requested_user_name, company_name, link_convite);
-        
-                                sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, requested_user_email).then(() => {
-                                    this.returnCompanyUsers(company_id, true);
-                                    resolve();
+                                    INSERT INTO
+                                        company_invitations
+                                        (invited_user, company_id, invited_by, token, role_id)
+                                    VALUES
+                                        (?, ?, ?, ?, ?)
+                                `, [invited_user, company_id, request_user, token, role_id]
+                            ).then(() => {
+                                functions.executeSql(
+                                    `
+                                        SELECT
+                                            name
+                                        FROM
+                                            companies
+                                        WHERE 
+                                            id = ?
+                                    `, [company_id]
+                                ).then((results2) => {
+                                    let company_name = results2[0].name;
+                                    let link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}&email=${requested_user_email}`;
+                                    let emailHtml = emailTemplates.inviteUser(requested_user_name, company_name, link_convite);
+            
+                                    sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, requested_user_email).then(() => {
+                                        this.returnCompanyUsers(company_id, true);
+                                        resolve();
+                                    })
                                 })
+                            }).catch((error) => {
+                                reject(error);
                             })
                         }).catch((error) => {
                             reject(error);
                         })
-                    }).catch((error) => {
-                        reject(error);
-                    })
+                    }
                 })
             })
         })
@@ -519,23 +519,26 @@ let companiesService = {
             })
         })
     },
-    checkTokenValidity: function (token) {
+    checkTokenValidity: function (token, user_email) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     SELECT
-                        invited_user AS email
+                        invited_user AS email,
+                        invited_user = ? AS email_match
                     FROM
                         company_invitations
                     WHERE
                         token = ? AND status = "pending"
-                `, [token]
+                `, [user_email, token]
             ).then((results) => {
                 if (results.length == 0) {
                     reject("Token inválido ou expirado.");
+                } else if (results[0].email_match == 0) {
+                    reject("E-mail inválido para o convite");
+                } else {
+                    resolve(results[0].email);
                 }
-
-                resolve(results[0]?.email);
             }).catch((error) => {
                 reject(error);
             })
@@ -580,7 +583,7 @@ let companiesService = {
         })
     },
     insertRoleFromInvite: function (token) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     INSERT INTO 
@@ -599,11 +602,11 @@ let companiesService = {
             })
         })
     },
-    enterCompany: function (token) {
+    enterCompany: function (token, user_email) {
         return new Promise((resolve, reject) => {
             let self = this;
 
-            this.checkTokenValidity(token).then(() => {
+            this.checkTokenValidity(token, user_email).then(() => {
                 let promises = [];
 
                 promises.push(
@@ -645,6 +648,8 @@ let companiesService = {
                         `, [token]
                     ).then((results) => {
                         _usersService.returnUserCompanies(results[0].id, true);
+                    }).catch(() => {
+                        reject("Email inválido para o convite");
                     })
                 )
 
@@ -710,9 +715,9 @@ let companiesService = {
             })
         })
     },
-    findUserByToken: function (token) {
+    findUserByToken: function (token, user_email) {
         return new Promise((resolve, reject) => {
-            this.checkTokenValidity(token).then((results) => {
+            this.checkTokenValidity(token, user_email).then((results) => {
                 _usersService.checkIfUserExists(results).then((results) => {
                     if (results.exist) {
                         resolve(true);
