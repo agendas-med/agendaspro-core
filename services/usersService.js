@@ -99,7 +99,6 @@ let usersService = {
         })
     },
     returnUser: function (user_id, company_id, clearCache = false) {
-        console.log(company_id)
         return new Promise((resolve, reject) => {
             let companySQL = `
                 SELECT
@@ -129,7 +128,7 @@ let usersService = {
                             u.address,
                             u.city,
                             u.state,
-                            (SELECT ccr.permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ? AND cur.user_id = ?) AS permission
+                            (SELECT ccr.id FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ? AND cur.user_id = ?) AS permission
                         FROM
                             users u
                         WHERE
@@ -137,7 +136,6 @@ let usersService = {
                     `, [company_id, user_id, user_id], !clearCache, 60
                 ).then((results) => {
                     this.returnUserCompanies(user_id).then((results2) => {
-    
                         let user = {
                             id: results[0].id,
                             name: results[0].name,
