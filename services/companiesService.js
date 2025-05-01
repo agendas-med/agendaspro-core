@@ -40,7 +40,11 @@ let companiesService = {
                                 services: results4
                             }
     
-                            resolve(company);
+                            if (company.id != null) {
+                                resolve(company);
+                            } else {
+                                reject();
+                            }
                         })
                     })
                 })
@@ -810,7 +814,7 @@ let companiesService = {
                 `
                     SELECT
                         *,
-                        (SELECT active FROM config_companies_preferences ccp WHERE ccp.preference_id = p.id) AS active
+                        (SELECT active FROM config_companies_preferences ccp WHERE ccp.preference_id = p.id AND ccp.company_id = ?) AS active
                     FROM
                         preferences p
                 `, [company_id], !clearCache

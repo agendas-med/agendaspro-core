@@ -6,7 +6,7 @@ const functions = require("../utils/functions");
 const validate = require("../middleware/validate");
 
 // Criar um agendamento
-router.post("/", login, validate.validateRequest(validate.schemas.appointments.create), (req, res, next) => {
+router.post("/", login, validate.validateRequest(validate.schemas.appointments.create), validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.create(
         req.headers['selected-company'],
         req.body.customer_id,
@@ -25,7 +25,7 @@ router.post("/", login, validate.validateRequest(validate.schemas.appointments.c
 });
 
 // Atualizar um agendamento
-router.patch("/:id", login, validate.validateRequest(validate.schemas.appointments.create), (req, res, next) => {
+router.patch("/:id", login, validate.validateRequest(validate.schemas.appointments.create), validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.update(
         req.params.id,
         req.headers['selected-company'],
@@ -45,7 +45,7 @@ router.patch("/:id", login, validate.validateRequest(validate.schemas.appointmen
 });
 
 // Excluir um agendamento
-router.delete("/:id", login, (req, res, next) => {
+router.delete("/:id", login, validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.delete(
         req.params.id,
         req.headers['selected-company']
@@ -58,7 +58,7 @@ router.delete("/:id", login, (req, res, next) => {
 });
 
 // Obter um agendamento específico
-router.get("/:id", login, (req, res, next) => {
+router.get("/:id", login, validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.getById(
         req.params.id,
         req.headers['selected-company']
@@ -71,7 +71,7 @@ router.get("/:id", login, (req, res, next) => {
 });
 
 // Obter todos os agendamentos da empresa
-router.get("/", login, (req, res, next) => {
+router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
     let today = req.query.today || null
 
     _appointmentsService.getAllByCompany(
@@ -86,7 +86,7 @@ router.get("/", login, (req, res, next) => {
     });
 });
 
-router.post("/init/:appointment_id", login, (req, res, next) => {
+router.post("/init/:appointment_id", login, validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.init(
         req.headers['selected-company'],
         req.params.appointment_id
@@ -98,7 +98,7 @@ router.post("/init/:appointment_id", login, (req, res, next) => {
     });
 });
 
-router.post("/stop/:appointment_id", login, (req, res, next) => {
+router.post("/stop/:appointment_id", login, validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.stop(
         req.headers['selected-company'],
         req.params.appointment_id
@@ -110,7 +110,7 @@ router.post("/stop/:appointment_id", login, (req, res, next) => {
     });
 });
 
-router.post("/cancel/:appointment_id", login, (req, res, next) => {
+router.post("/cancel/:appointment_id", login, validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.cancel(
         req.headers['selected-company'],
         req.params.appointment_id

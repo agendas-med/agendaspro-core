@@ -5,7 +5,7 @@ const validate = require("../middleware/validate");
 const _companiesService = require("../services/companiesService");
 const functions = require("../utils/functions");
 
-router.get("/", login, (req, res, next) => {
+router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
     _companiesService.returnCompany(req.headers['selected-company'], req.usuario.id).then((results) => {
         let response = functions.createResponse("Retorno da empresa solicitada", results, "GET", 200);
         return res.status(200).send(response);
@@ -58,7 +58,7 @@ router.post("/roles", login, validate.validateRequest(validate.schemas.companies
     })
 });
 
-router.get("/roles", login, (req, res, next) => {
+router.get("/roles", login, validate.validateCompanyAccess, (req, res, next) => {
     _companiesService.returnCompanyRoles(req.headers['selected-company']).then(() => {
         let response = functions.createResponse("Cargo criado com sucesso", null, "GET", 200);
         return res.status(200).send(response);
@@ -176,7 +176,7 @@ router.post("/services", login, validate.validateRequest(validate.schemas.compan
     });
 });
 
-router.get("/services", login, (req, res, next) => {
+router.get("/services", login, validate.validateCompanyAccess, (req, res, next) => {
     _companiesService.returnCompanyServices(req.headers['selected-company']).then((services) => {
         let response = functions.createResponse("Serviços retornados com sucesso", services, "GET", 200);
         return res.status(200).send(response);
@@ -224,7 +224,7 @@ router.get("/preferences", login, (req, res, next) => {
     });
 });
 
-router.post("/preferences", login, (req, res, next) => {
+router.post("/preferences", login, validate.validateCompanyAccess, (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
         _companiesService.setPreferences(req.headers['selected-company'], req.body.preferences);
 

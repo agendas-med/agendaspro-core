@@ -37,21 +37,21 @@ router.patch("/:customer_id", login, validate.validateRequest(validate.schemas.c
     }).catch((error) => res.status(401).send(error));
 });
 
-router.get("/:customer_id", login, (req, res) => {
+router.get("/:customer_id", login, validate.validateCompanyAccess, (req, res) => {
     _customersService.get(req.params.customer_id).then((customer) => {
         let response = functions.createResponse("Retorno do cliente", customer, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => res.status(500).send(error));
 });
 
-router.get("/", login, (req, res) => {
+router.get("/", login, validate.validateCompanyAccess, (req, res) => {
     _customersService.getAllByCompany(req.headers['selected-company']).then((customers) => {
         let response = functions.createResponse("Retorno dos clientes da empresa", customers, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {console.log(error); res.status(500).send(error)});
 });
 
-router.post("/find", login, (req, res) => {
+router.post("/find", login, validate.validateCompanyAccess, (req, res) => {
     _customersService.find(req.headers['selected-company'], req.body.search_string).then((customers) => {
         let response = functions.createResponse("Retorno dos clientes da empresa", customers, "POST", 200);
         return res.status(200).send(response);

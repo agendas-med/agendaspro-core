@@ -128,7 +128,7 @@ let usersService = {
                             u.address,
                             u.city,
                             u.state,
-                            (SELECT ccr.id FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ? AND cur.user_id = ?) AS permission
+                            (SELECT ccr.permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ? AND cur.user_id = ?) AS permission
                         FROM
                             users u
                         WHERE
@@ -277,6 +277,26 @@ let usersService = {
                 }
 
                 resolve(retorno);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
+    returnCompanies: function (user_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        c.*
+                    FROM
+                        companies c
+                    INNER JOIN
+                        company_members cm ON cm.company_id = c.id
+                    WHERE
+                        cm.user_id = ?                   
+                `, [user_id]
+            ).then((results) => {
+                resolve(results);
             }).catch((error) => {
                 reject(error);
             })

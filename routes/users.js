@@ -32,6 +32,15 @@ router.get("/", login, (req, res, next) => {
     })
 });
 
+router.get("/return_companies", login, (req, res, next) => {
+    _usersService.returnCompanies(req.usuario.id).then((results) => {
+        let response = functions.createResponse("Retorno das empresas do usuário", results, "GET", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    })
+});
+
 router.post("/check_jwt", (req, res, next) => {
     _usersService.checkJwt(req.body.token).then((results) => {
         let returnObj = {
