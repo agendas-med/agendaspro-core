@@ -301,6 +301,25 @@ let usersService = {
                 reject(error);
             })
         })
+    },
+    changeProfile: function (user_id, company_id, address, city, state, tel, zip_code) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE
+                        users
+                    SET
+                        address = ?, city = ?, state = ?, tel = ?, zip_code = ?
+                    WHERE
+                        id = ?                
+                `, [address, city, state, tel, zip_code, user_id]
+            ).then((results) => {
+                this.returnUser(user_id, company_id, true);
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
     }
 }
 

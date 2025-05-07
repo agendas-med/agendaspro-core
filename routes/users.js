@@ -63,4 +63,13 @@ router.post("/find", login, validate.validateRequest(validate.schemas.users.find
     })
 })
 
+router.post("/change-profile", login, validate.validateRequest(validate.schemas.users.change_profile), (req, res, next) => {
+    _usersService.changeProfile(req.usuario.id, req.headers['selected-company'], req.body.address, req.body.city, req.body.state, req.body.tel, req.body.zip_code).then((results) => {
+        let response = functions.createResponse("Perfil atualizado com sucesso", results, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    })
+})
+
 module.exports = router;
