@@ -141,6 +141,26 @@ let functions = {
                 resolve(results[0]);
             })
         })
+    },
+    returnColumn: function (table, value, targetColumn, referenceColumn = "id") {
+        return new Promise((resolve, reject) => {
+
+
+            functions.executeSql(
+                `
+                    SELECT
+                        ${targetColumn}
+                    FROM
+                        ${table}
+                    WHERE
+                        ${referenceColumn} = ?
+                `, [value]
+            ).then((results) => {
+                resolve(results[0][targetColumn]);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
     }
 }
 

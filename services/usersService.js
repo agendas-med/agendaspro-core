@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 let usersService = {
     register: function (name, email, password) {
@@ -319,6 +320,108 @@ let usersService = {
             }).catch((error) => {
                 reject(error);
             })
+        })
+    },
+    requestResetPassword: function (user_id) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                let emailUsuario = await functions.returnColumn("users", user_id, "email");
+                let nomeUsuario = await functions.returnColumn("users", user_id, "name");
+
+                const token = crypto.randomBytes(32).toString('hex');
+
+                await functions.executeSql(
+                    `
+                        INSERT INTO
+                            password_requests
+                            (user_id, token)
+                        VALUES
+                            (?, ?)
+                    `, [user_id, token]
+                )
+
+                let link_convite = process.env.URL_SITE + "/redefinir-senha?token=" + token;
+                let now = new Date();
+                let day = now.getDate();
+                let month = now.getMonth() + 1;
+                let year = now.getFullYear();
+                let hour = now.getHours();
+                let minute = now.getMinutes();
+
+                if (hour < 10) hour = "0" + hour;
+                if (minute < 10) minute = "0" + minute;
+
+                let requestDate = `${day}/${month}/${year} às ${hour}:${minute}`;
+                let emailHtml = emailTemplates.resetPassword(nomeUsuario, emailUsuario, requestDate, link_convite);
+                
+                await sendEmails.sendEmail(emailHtml, "Redefinição de senha solicitada", process.env.USER_EMAIL, emailUsuario);
+
+                resolve();
+            } catch (error) {
+                reject(error);
+            }
+        })
+    },
+    checkTokenValidity: function (token) {
+        return new Promise(async (resolve, reject) => {
+            let results = await functions.executeSql(
+                `
+                    SELECT
+                        id
+                    FROM
+                        password_requests
+                    WHERE
+                        token = ? AND request_date > NOW() - INTERVAL 15 MINUTE AND confirm_date IS NULL
+                `, [token]
+            )
+            
+            if (results[0] == undefined) {
+                reject("Token inválido");
+            } else {
+                resolve();
+            }
+        })
+    },
+    resetPassword: function (token, password) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                await this.checkTokenValidity(token);
+                let userId = await functions.returnColumn("password_requests", token, "user_id", "token");
+                
+                bcrypt.hash(password, 10, (errBcrypt, hash) => {
+                    if (errBcrypt) {
+                        reject(errBcrypt);
+                    }
+
+                    functions.executeSql(
+                        `
+                            UPDATE
+                                users
+                            SET
+                                password = ?
+                            WHERE
+                                id = ?
+                        `, [hash, userId]
+                    ).then(async () => {
+                        await functions.executeSql(
+                            `
+                                UPDATE
+                                    password_requests
+                                SET
+                                    confirm_date = NOW()
+                                WHERE
+                                    token = ?
+                            `, [token]
+                        )
+
+                        resolve();
+                    }).catch((error2) => {
+                        reject(error2);
+                    })
+                });     
+            } catch (error) {
+                reject(error);
+            }
         })
     }
 }

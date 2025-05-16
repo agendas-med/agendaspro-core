@@ -1,7 +1,7 @@
 {
-  "name": "yume-api",
+  "name": "agendaspro-core",
   "version": "1.0.0",
-  "description": "Api da rede social Yume",
+  "description": "Api do sistema agendaspro",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
@@ -9,14 +9,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/saymon-felipe/yume-api.git"
+    "url": "git+https://github.com/saymon-felipe/agendaspro-core.git"
   },
   "author": "Saymon Felipe",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/saymon-felipe/yume-api/issues"
+    "url": "https://github.com/saymon-felipe/agendaspro-core/issues"
   },
-  "homepage": "https://github.com/saymon-felipe/yume-api#readme",
+  "homepage": "https://github.com/saymon-felipe/agendaspro-core#readme",
   "dependencies": {
     "bcrypt": "^5.0.1",
     "body-parser": "^1.17.0",

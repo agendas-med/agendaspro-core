@@ -72,4 +72,31 @@ router.post("/change-profile", login, validate.validateRequest(validate.schemas.
     })
 })
 
+router.get("/request-reset-password", login, (req, res, next) => {
+    _usersService.requestResetPassword(req.usuario.id).then(() => {
+        let response = functions.createResponse("Email para redefinição de senha enviado", null, "GET", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    })
+});
+
+router.post("/check-token-validity", (req, res, next) => {
+    _usersService.checkTokenValidity(req.body.token).then(() => {
+        let response = functions.createResponse("Token válido", null, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(401).send(error);
+    })
+});
+
+router.post("/reset-password", (req, res, next) => {
+    _usersService.resetPassword(req.body.token, req.body.password).then(() => {
+        let response = functions.createResponse("Senha alterada com sucesso", null, "POST", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    })
+});
+
 module.exports = router;
