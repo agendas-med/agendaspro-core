@@ -72,8 +72,8 @@ router.post("/change-profile", login, validate.validateRequest(validate.schemas.
     })
 })
 
-router.get("/request-reset-password", login, (req, res, next) => {
-    _usersService.requestResetPassword(req.usuario.id).then(() => {
+router.post("/request-reset-password", (req, res, next) => {
+    _usersService.requestResetPassword(req.body.email).then(() => {
         let response = functions.createResponse("Email para redefinição de senha enviado", null, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {

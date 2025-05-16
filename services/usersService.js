@@ -322,41 +322,45 @@ let usersService = {
             })
         })
     },
-    requestResetPassword: function (user_id) {
+    requestResetPassword: function (email) {
         return new Promise(async (resolve, reject) => {
             try {
-                let emailUsuario = await functions.returnColumn("users", user_id, "email");
-                let nomeUsuario = await functions.returnColumn("users", user_id, "name");
+                let idUsuario = await functions.returnColumn("users", email, "id", "email") || null;
+                let nomeUsuario = await functions.returnColumn("users", email, "name", "email");
 
-                const token = crypto.randomBytes(32).toString('hex');
+                if (!idUsuario) {
+                    reject("Ocorreu um erro ao enviar o email de redefinição");
+                } else {
+                    const token = crypto.randomBytes(32).toString('hex');
 
-                await functions.executeSql(
-                    `
-                        INSERT INTO
-                            password_requests
-                            (user_id, token)
-                        VALUES
-                            (?, ?)
-                    `, [user_id, token]
-                )
+                    await functions.executeSql(
+                        `
+                            INSERT INTO
+                                password_requests
+                                (user_id, token)
+                            VALUES
+                                (?, ?)
+                        `, [idUsuario, token]
+                    )
 
-                let link_convite = process.env.URL_SITE + "/redefinir-senha?token=" + token;
-                let now = new Date();
-                let day = now.getDate();
-                let month = now.getMonth() + 1;
-                let year = now.getFullYear();
-                let hour = now.getHours();
-                let minute = now.getMinutes();
+                    let link_convite = process.env.URL_SITE + "/redefinir-senha?token=" + token;
+                    let now = new Date();
+                    let day = now.getDate();
+                    let month = now.getMonth() + 1;
+                    let year = now.getFullYear();
+                    let hour = now.getHours();
+                    let minute = now.getMinutes();
 
-                if (hour < 10) hour = "0" + hour;
-                if (minute < 10) minute = "0" + minute;
+                    if (hour < 10) hour = "0" + hour;
+                    if (minute < 10) minute = "0" + minute;
 
-                let requestDate = `${day}/${month}/${year} às ${hour}:${minute}`;
-                let emailHtml = emailTemplates.resetPassword(nomeUsuario, emailUsuario, requestDate, link_convite);
-                
-                await sendEmails.sendEmail(emailHtml, "Redefinição de senha solicitada", process.env.USER_EMAIL, emailUsuario);
+                    let requestDate = `${day}/${month}/${year} às ${hour}:${minute}`;
+                    let emailHtml = emailTemplates.resetPassword(nomeUsuario, email, requestDate, link_convite);
+                    
+                    await sendEmails.sendEmail(emailHtml, "Redefinição de senha solicitada", process.env.USER_EMAIL, email);
 
-                resolve();
+                    resolve();
+                }
             } catch (error) {
                 reject(error);
             }
