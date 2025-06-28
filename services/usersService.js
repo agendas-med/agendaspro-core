@@ -81,6 +81,34 @@ let usersService = {
             })
         })
     },
+    googleLogin: function (user_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        *
+                    FROM
+                        users
+                    WHERE
+                        id = ?
+                `, [user_id]
+            ).then((results) => {
+                let token = jwt.sign({
+                    id: user_id,
+                    email: results[0].email,
+                    name: results[0].name
+                }, 
+                process.env.JWT_KEY,
+                {
+                    expiresIn: "8h"
+                })
+
+                resolve(token);
+            }).catch((error) => {
+                reject(error);
+            })
+        })
+    },
     checkJwt: function (tokenParam) {
         return new Promise((resolve, reject) => {
             let token = tokenParam.split(" ")[1];

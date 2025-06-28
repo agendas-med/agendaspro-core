@@ -4,6 +4,7 @@ const login = require("../middleware/login");
 const _usersService = require("../services/usersService");
 const functions = require("../utils/functions");
 const validate = require("../middleware/validate");
+const axios = require("axios");
 
 router.post("/register", (req, res, next) => {
     _usersService.register(req.body.name, req.body.email, req.body.password).then((results) => {
@@ -21,6 +22,72 @@ router.post("/login", (req, res, next) => {
     }).catch((error) => {
         return res.status(500).send(error);
     })
+});
+
+router.post("/google-login", async (req, res) => {
+    const { token } = req.body;
+
+    try {
+        // 🔹 Pegando o Token de Acesso do Google
+        const { data } = await axios.post("https://oauth2.googleapis.com/token", null, {
+            params: {
+                client_id: process.env.GOOGLE_CLIENT_ID,
+                client_secret: process.env.GOOGLE_CLIENT_SECRET,
+                redirect_uri: process.env.URL_SITE,
+                grant_type: "authorization_code",
+                code: token
+            }
+        });
+
+        const accessToken = data.access_token;
+
+        const { data: userInfo } = await axios.get("https://www.googleapis.com/oauth2/v2/userinfo", {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+
+        const results = await functions.executeSql(
+            `
+                SELECT
+                    *
+                FROM
+                    users
+                WHERE
+                    code = ?
+            `, [userInfo.id]
+        )
+
+        let userId = results[0]?.id;
+
+        if (results.length == 0) {
+            let insertedUser = await functions.executeSql(
+                `
+                    INSERT INTO
+                        users
+                        (code, name, email, url_photo)
+                    VALUES
+                        (?, ?, ?, ?)
+                `, [userInfo.id, userInfo.given_name, userInfo.email, userInfo.picture]
+            )
+
+            userId = insertedUser.insertId;
+        }
+
+        _usersService.googleLogin(userId).then((jwtToken) => {
+            let returnObj = {
+                user: userId,
+                token: jwtToken
+            }
+            
+            let response = functions.createResponse("Usuário autenticado com sucesso", returnObj, "POST", 200);
+            return res.status(200).send(response);
+        })        
+    } catch (error) {
+        if (error.code == "ER_DUP_ENTRY") {
+            error = "Email do google inválido";
+        }
+
+        return res.status(500).send(error);
+    }
 });
 
 router.get("/", login, (req, res, next) => {
