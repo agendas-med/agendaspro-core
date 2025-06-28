@@ -23,6 +23,6 @@ values
 ("notificate_scheduling", "Notificar agendamentos realizados"),
 ("notificate_in_app_payment", "Aceitar pagamento in-app"),
 ("notificate_scheduling_cancelation", "Notificar agendamentos cancelados"),
-("auto_finish_appointments", "Finalizar agendamentos automaticamente")
+("auto_finish_appointments", "Finalizar agendamentos automaticamente");
 
-SET time_zone = '-03:00'
+SET time_zone = '-03:00';

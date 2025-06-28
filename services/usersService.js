@@ -113,7 +113,7 @@ let usersService = {
             `;
 
             functions.executeSql(companySQL, []).then((companies) => {
-                if (!company_id) {
+                if (!company_id && companies.length) {
                     company_id = companies[0].id;
                 }
 
