@@ -27,7 +27,8 @@ let companiesService = {
                 this.returnCompanyConfigurations(company_id, clearCache).then((results2) => {
                     this.returnCompanyRoles(company_id, clearCache).then((results3) => {
                         this.returnCompanyServices(company_id, clearCache).then((results4) => {
-                            let company = {
+                            this.returnCompanyProducts(company_id, clearCache).then((results5) => {
+                                let company = {
                                 id: results[0]?.id || null,
                                 name: results[0]?.name || "",
                                 address: results[0]?.address || "",
@@ -37,7 +38,8 @@ let companiesService = {
                                 state: results[0]?.state || "",
                                 configurations: results2,
                                 roles: results3,
-                                services: results4
+                                services: results4,
+                                products: results5
                             }
     
                             if (company.id != null) {
@@ -45,6 +47,7 @@ let companiesService = {
                             } else {
                                 reject();
                             }
+                            })
                         })
                     })
                 })
@@ -753,12 +756,47 @@ let companiesService = {
             });
         });
     },
+    createProduct: function (company_id, name, value, cost, description) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO products (company_id, name, value, cost, description)
+                    VALUES (?, ?, ?, ?, ?)
+                `,
+                [company_id, name, value, cost, description]
+            ).then((results) => {
+                if (results.affectedRows === 0) {
+                    reject("Erro ao criar o produto");
+                }
+                this.returnCompanyProducts(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
     returnCompanyServices: function (company_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     SELECT id, name, value, cost, observations, duration
                     FROM services
+                    WHERE company_id = ?
+                `,
+                [company_id], !clearCache
+            ).then((results) => {
+                resolve(results);
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
+    returnCompanyProducts: function (company_id, clearCache = false) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT id, name, value, cost, description
+                    FROM products
                     WHERE company_id = ?
                 `,
                 [company_id], !clearCache
@@ -789,6 +827,26 @@ let companiesService = {
             });
         });
     },
+    editProduct: function (company_id, product_id, name, value, cost, description) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    UPDATE products
+                    SET name = ?, value = ?, cost = ?, description = ?
+                    WHERE id = ? AND company_id = ?
+                `,
+                [name, value, cost, description, product_id, company_id]
+            ).then((results) => {
+                if (results.affectedRows === 0) {
+                    reject("Erro ao atualizar o produto");
+                }
+                this.returnCompanyProducts(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
     excludeService: function (company_id, service_id) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
@@ -802,6 +860,25 @@ let companiesService = {
                     reject("Erro ao excluir o serviço");
                 }
                 this.returnCompanyServices(company_id, true);
+                resolve();
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
+    excludeProduct: function (company_id, product_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    DELETE FROM product
+                    WHERE id = ? AND company_id = ?
+                `,
+                [product_id, company_id]
+            ).then((results) => {
+                if (results.affectedRows === 0) {
+                    reject("Erro ao excluir o produto");
+                }
+                this.returnCompanyProducts(company_id, true);
                 resolve();
             }).catch((error) => {
                 reject(error);

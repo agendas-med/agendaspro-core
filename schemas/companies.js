@@ -266,6 +266,29 @@ let schema = {
             'number.min': "A duração do serviço deve ser no mínimo 1 minuto.",
             'any.required': errors.string.empty()
         })
+    }),
+    createProduct: Joi.object({
+        name: Joi.string().min(3).max(100).required().messages({
+            'string.base': errors.string.empty(),
+            'string.empty': errors.string.empty(),
+            'string.min': errors.string.min(3),
+            'string.max': errors.string.max(100),
+            'any.required': errors.string.empty()
+        }),
+        value: Joi.number().precision(2).min(0).required().messages({
+            'number.base': errors.integer.base(),
+            'number.min': "O valor do serviço deve ser maior ou igual a 0.",
+            'any.required': errors.string.empty()
+        }),
+        cost: Joi.number().precision(2).min(0).required().messages({
+            'number.base': errors.integer.base(),
+            'number.min': "O valor do serviço deve ser maior ou igual a 0.",
+            'any.required': errors.string.empty()
+        }),
+        description: Joi.string().allow(null, "").max(500).messages({
+            'string.base': errors.string.empty(),
+            'string.max': errors.string.max(500),
+        })
     })
 }
 

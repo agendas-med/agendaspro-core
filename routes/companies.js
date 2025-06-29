@@ -235,4 +235,52 @@ router.post("/preferences", login, validate.validateCompanyAccess, (req, res, ne
     });
 });
 
+router.post("/products", login, validate.validateRequest(validate.schemas.companies.createProduct), (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.createProduct(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.description).then(() => {
+            let response = functions.createResponse("Produto criado com sucesso", null, "POST", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
+router.get("/products", login, validate.validateCompanyAccess, (req, res, next) => {
+    _companiesService.returnCompanyProducts(req.headers['selected-company']).then((services) => {
+        let response = functions.createResponse("Produtos retornados com sucesso", services, "GET", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(500).send(error);
+    });
+});
+
+router.post("/products/:id", login, validate.validateRequest(validate.schemas.companies.createProduct), (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.editProduct(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.description).then(() => {
+            let response = functions.createResponse("Produto atualizado com sucesso", null, "POST", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
+router.delete("/products/:id", login, (req, res, next) => {
+    _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
+        _companiesService.excludeProduct(req.headers['selected-company'], req.params.id).then(() => {
+            let response = functions.createResponse("Produto excluído com sucesso", null, "DELETE", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
+    }).catch((error) => {
+        return res.status(401).send(error);
+    });
+});
+
 module.exports = router;
