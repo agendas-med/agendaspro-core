@@ -21,7 +21,8 @@ const errors = {
         max: (limit) => `O campo deve um numero menor ou igual a ${limit}.`,
     },
     array: {
-        base: () => "O campo deve ser um array."
+        base: () => "O campo deve ser um array.",
+        includes: () => "Um ou mais itens do array são inválidos."
     },
     boolean: {
         base: () => "O campo deve ser boolean."
