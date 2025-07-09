@@ -51,9 +51,9 @@ let salesService = {
                     for (let i = 0; i < products.length; i++) {
                         let promises = [];
                         let currentProduct = products[i];
-
+                        
                         promises.push(
-                            this.insertProductInSale(results.insertId, currentProduct.id)
+                            this.insertProductInSale(sale_id, currentProduct.id)
                         )
 
                         Promise.all(promises).then(() => {
@@ -72,6 +72,7 @@ let salesService = {
         });
     },   
     delete: function (sale_id, company_id) {
+        console.log(sale_id)
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `

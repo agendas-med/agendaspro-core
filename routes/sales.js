@@ -24,7 +24,7 @@ router.post("/", login, validate.validateRequest(validate.schemas.sales.create),
 // Atualizar uma venda
 router.patch("/:id", login, validate.validateRequest(validate.schemas.sales.create), validate.validateCompanyAccess, (req, res, next) => {
     _salesService.update(
-        req.body.sale_id,
+        req.params.id,
         req.headers['selected-company'],
         req.body.customer_id,
         req.body.appointment_id,
