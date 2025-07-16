@@ -756,14 +756,14 @@ let companiesService = {
             });
         });
     },
-    createProduct: function (company_id, name, value, cost, description) {
+    createProduct: function (company_id, name, value, cost, description, unit_of_measure) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                    INSERT INTO products (company_id, name, value, cost, description)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO products (company_id, name, value, cost, description, unit_of_measure)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 `,
-                [company_id, name, value, cost, description]
+                [company_id, name, value, cost, description, unit_of_measure]
             ).then((results) => {
                 if (results.affectedRows === 0) {
                     reject("Erro ao criar o produto");
@@ -795,9 +795,14 @@ let companiesService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                    SELECT id, name, value, cost, description
-                    FROM products
-                    WHERE company_id = ?
+                    SELECT 
+                        p.id, p.name, p.value, p.cost, p.description, p.unit_of_measure, um.name AS unit_of_measure_name, um.abbreviation AS unit_of_measure_abbreviation
+                    FROM 
+                        products p
+                    INNER JOIN
+                        units_of_measurement um ON um.id = p.unit_of_measure
+                    WHERE 
+                        p.company_id = ?
                 `,
                 [company_id], !clearCache
             ).then((results) => {
@@ -827,15 +832,15 @@ let companiesService = {
             });
         });
     },
-    editProduct: function (company_id, product_id, name, value, cost, description) {
+    editProduct: function (company_id, product_id, name, value, cost, description, unit_of_measure) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     UPDATE products
-                    SET name = ?, value = ?, cost = ?, description = ?
+                    SET name = ?, value = ?, cost = ?, description = ?, unit_of_measure = ?
                     WHERE id = ? AND company_id = ?
                 `,
-                [name, value, cost, description, product_id, company_id]
+                [name, value, cost, description, unit_of_measure, product_id, company_id]
             ).then((results) => {
                 if (results.affectedRows === 0) {
                     reject("Erro ao atualizar o produto");
@@ -870,7 +875,7 @@ let companiesService = {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
-                    DELETE FROM product
+                    DELETE FROM products
                     WHERE id = ? AND company_id = ?
                 `,
                 [product_id, company_id]

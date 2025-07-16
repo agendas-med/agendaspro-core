@@ -36,3 +36,24 @@ create table sales_products (
 );
 
 insert into versaodb (version) values ("2025.06.03");
+
+create table units_of_measurement (
+	id int not null primary key auto_increment,
+    name varchar(10) not null,
+    abbreviation varchar(3) not null
+);
+
+alter table products add column unit_of_measure int not null;
+alter table products add constraint FK_products_unit_of_measure FOREIGN KEY (unit_of_measure) REFERENCES units_of_measurement(id) ON DELETE CASCADE;
+
+INSERT INTO units_of_measurement (name, abbreviation) VALUES
+('Unidade', 'un'),       -- Para itens contados individualmente (e.g., uma caneta, um serviço)
+('Quilograma', 'kg'),    -- Para peso (e.g., café, açúcar)
+('Litro', 'L'),          -- Para volume (e.g., água, leite)
+('Metro', 'm'),          -- Para comprimento (e.g., tecido, fio)
+('Par', 'par'),          -- Para itens vendidos em pares (e.g., meias, sapatos)
+('Caixa', 'cx'),         -- Para caixas de produtos (e.g., uma caixa de lápis)
+('Pacote', 'pct'),       -- Para pacotes de produtos (e.g., um pacote de pilhas)
+('Conjunto', 'cj'); 
+
+insert into versaodb (version) values ("2025.06.04");

@@ -163,7 +163,7 @@ router.delete("/remove_user/:user_id", login, (req, res, next) => {
     })
 });
 
-router.post("/services", login, validate.validateRequest(validate.schemas.companies.createService), (req, res, next) => {
+router.post("/services", login, validate.validateRequest(validate.schemas.services.create), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
         _companiesService.createService(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration).then(() => {
             let response = functions.createResponse("Serviço criado com sucesso", null, "POST", 200);
@@ -185,7 +185,7 @@ router.get("/services", login, validate.validateCompanyAccess, (req, res, next) 
     });
 });
 
-router.post("/services/:id", login, validate.validateRequest(validate.schemas.companies.createService), (req, res, next) => {
+router.post("/services/:id", login, validate.validateRequest(validate.schemas.services.create), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
         _companiesService.editService(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration).then(() => {
             let response = functions.createResponse("Serviço atualizado com sucesso", null, "POST", 200);
@@ -235,9 +235,9 @@ router.post("/preferences", login, validate.validateCompanyAccess, (req, res, ne
     });
 });
 
-router.post("/products", login, validate.validateRequest(validate.schemas.companies.createProduct), (req, res, next) => {
+router.post("/products", login, validate.validateRequest(validate.schemas.products.create), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.createProduct(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.description).then(() => {
+        _companiesService.createProduct(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.description, req.body.unit_of_measure).then(() => {
             let response = functions.createResponse("Produto criado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {
@@ -257,9 +257,9 @@ router.get("/products", login, validate.validateCompanyAccess, (req, res, next) 
     });
 });
 
-router.post("/products/:id", login, validate.validateRequest(validate.schemas.companies.createProduct), (req, res, next) => {
+router.post("/products/:id", login, validate.validateRequest(validate.schemas.products.create), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.editProduct(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.description).then(() => {
+        _companiesService.editProduct(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.description, req.body.unit_of_measure).then(() => {
             let response = functions.createResponse("Produto atualizado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {
