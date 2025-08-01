@@ -57,3 +57,7 @@ INSERT INTO units_of_measurement (name, abbreviation) VALUES
 ('Conjunto', 'cj'); 
 
 insert into versaodb (version) values ("2025.06.04");
+
+alter table sales_products add column quantity int not null;
+
+insert into versaodb (version) values ("2025.07.01");

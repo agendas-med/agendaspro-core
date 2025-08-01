@@ -11,7 +11,8 @@ router.post("/", login, validate.validateRequest(validate.schemas.sales.create),
         req.headers['selected-company'],
         req.body.customer_id,
         req.body.appointment_id,
-        req.body.products
+        req.body.products,
+        req.body.status
     ).then(() => {
         let response = functions.createResponse("Venda criada com sucesso", null, "POST", 200);
         return res.status(200).send(response);
@@ -28,7 +29,8 @@ router.patch("/:id", login, validate.validateRequest(validate.schemas.sales.crea
         req.headers['selected-company'],
         req.body.customer_id,
         req.body.appointment_id,
-        req.body.products
+        req.body.products,
+        req.body.status
     ).then(() => {
         let response = functions.createResponse("Venda atualizada com sucesso", null, "PATCH", 200);
         return res.status(200).send(response);

@@ -4,23 +4,23 @@ const emailTemplates = require("../templates/emailTemplates");
 const { func } = require("joi");
 
 let salesService = {
-    create: function (company_id, customer_id, appointment_id, products) {
+    create: function (company_id, customer_id, appointment_id, products, status) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     INSERT INTO
                         sales
-                        (company_id, customer_id, appointment_id)
+                        (company_id, customer_id, appointment_id, status)
                     VALUES
-                        (?, ?, ?)
-                `, [company_id, customer_id, appointment_id]
+                        (?, ?, ?, ?)
+                `, [company_id, customer_id, appointment_id, status]
             ).then((results) => {
                 for (let i = 0; i < products.length; i++) {
                     let promises = [];
                     let currentProduct = products[i];
 
                     promises.push(
-                        this.insertProductInSale(results.insertId, currentProduct.id)
+                        this.insertProductInSale(results.insertId, currentProduct.id, currentProduct.quantity)
                     )
 
                     Promise.all(promises).then(() => {
@@ -35,17 +35,17 @@ let salesService = {
             })
         });
     },   
-    update: function (sale_id, company_id, customer_id, appointment_id, products) {
+    update: function (sale_id, company_id, customer_id, appointment_id, products, status) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     UPDATE
                         sales
                     SET
-                        customer_id = ?, appointment_id = ?
+                        customer_id = ?, appointment_id = ?, status = ?
                     WHERE
                         company_id = ? AND id = ?
-                `, [customer_id, appointment_id, company_id, sale_id]
+                `, [customer_id, appointment_id, status, company_id, sale_id]
             ).then((results) => {
                 this.removeProductsFromSale(sale_id).then(() => {
                     for (let i = 0; i < products.length; i++) {
@@ -53,7 +53,7 @@ let salesService = {
                         let currentProduct = products[i];
                         
                         promises.push(
-                            this.insertProductInSale(sale_id, currentProduct.id)
+                            this.insertProductInSale(sale_id, currentProduct.id, currentProduct.quantity)
                         )
 
                         Promise.all(promises).then(() => {
@@ -105,16 +105,16 @@ let salesService = {
             })
         })
     },
-    insertProductInSale: function (sale_id, product_id) {
+    insertProductInSale: function (sale_id, product_id, quantity) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
                     INSERT INTO
                         sales_products
-                        (sale_id, product_id)
+                        (sale_id, product_id, quantity)
                     VALUES
-                        (?, ?)
-                `, [sale_id, product_id]
+                        (?, ?, ?)
+                `, [sale_id, product_id, quantity]
             ).then(() => {
                 resolve();
             }).catch((error) => {
@@ -131,7 +131,8 @@ let salesService = {
                         p.name,
                         p.value,
                         p.description,
-                        p.cost
+                        p.cost,
+                        sp.quantity
                     FROM
                         products p
                     INNER JOIN
@@ -202,7 +203,7 @@ let salesService = {
                     for (let j = 0; j < products.length; j++) {
                         let currentProduct = products[j];
 
-                        productsValuesSum += currentProduct.value;
+                        productsValuesSum += (currentProduct.value * currentProduct.quantity);
                     }
 
                     for (let j = 0; j < services.length; j++) {
