@@ -52,6 +52,11 @@ let schema = {
                     'number.min': "O valor do serviço deve ser maior ou igual a 0.",
                     'any.required': errors.string.empty()
                 }),
+                cost: Joi.number().precision(2).min(0).required().messages({
+                    'number.base': errors.integer.base(),
+                    'number.min': "O valor do serviço deve ser maior ou igual a 0.",
+                    'any.required': errors.string.empty()
+                }),
                 observations: Joi.string().allow(null, "").messages({
                     'string.base': errors.string.empty()
                 }),
