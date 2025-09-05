@@ -13,6 +13,7 @@ const financialRoute = require('./routes/financial');
 const reportsRoute = require("./routes/reports");
 const salesRoute = require("./routes/sales");
 const utilsRoute = require("./routes/utils");
+const stockRoute = require("./routes/stock");
 
 app.use(morgan('dev'));
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -44,6 +45,7 @@ app.use("/financial", financialRoute);
 app.use("/reports", reportsRoute);
 app.use("/sales", salesRoute);
 app.use("/utils", utilsRoute);
+app.use("/stock", stockRoute);
 
 app.use('/public', express.static('public'));
 

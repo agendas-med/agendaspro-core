@@ -24,7 +24,12 @@ let schema = {
                     'number.base': errors.integer.base(),
                     'number.integer': errors.integer.integer(),
                     'any.required': errors.string.empty()
-                })
+                }),
+                available_quantity: Joi.number().integer().required().messages({
+                    'number.base': errors.integer.base(),
+                    'number.integer': errors.integer.integer(),
+                    'any.required': errors.string.empty()
+                }),
             })
         ).optional().messages({
             'array.base': errors.array.base(), // Mensagem se não for um array

@@ -1,6 +1,7 @@
 const functions = require("../utils/functions");
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
+const _salesService = require("./salesService");
 
 let appointmentsService = {
     create: function (company_id, customer_id, customer_name, date, duration, observations, services, status) {
@@ -50,6 +51,22 @@ let appointmentsService = {
             }).then((results) => {
                 if (results && results.affectedRows > 0) {
                     this.insertAppointmentServices(results.insertId, services).then(() => {
+                        let statusVenda = "";
+
+                        switch (status) {
+                            case "cancelado":
+                                statusVenda = "cancelada";
+                                break;
+                            case "iniciado":
+                            case "agendado":
+                                statusVenda = "em_aberto";
+                                break;
+                            case "realizado":
+                                statusVenda = "realizada";
+                                break;
+                        }
+
+                        _salesService.create(company_id, customer_id, results.insertId, [], statusVenda);
                         this.getAllByCompany(company_id, true);
                         this.getAllByCompany(company_id, true, true);
                         resolve();

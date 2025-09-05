@@ -17,7 +17,6 @@ router.post("/", login, validate.validateRequest(validate.schemas.sales.create),
         let response = functions.createResponse("Venda criada com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        console.log(error)
         return res.status(500).send(error);
     });
 });

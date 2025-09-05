@@ -1,7 +1,6 @@
 const functions = require("../utils/functions");
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
-const { func } = require("joi");
 
 let salesService = {
     create: function (company_id, customer_id, appointment_id, products, status) {
@@ -15,6 +14,10 @@ let salesService = {
                         (?, ?, ?, ?)
                 `, [company_id, customer_id, appointment_id, status]
             ).then((results) => {
+                if (products.length == 0) {
+                    resolve();
+                }
+
                 for (let i = 0; i < products.length; i++) {
                     let promises = [];
                     let currentProduct = products[i];
@@ -72,7 +75,6 @@ let salesService = {
         });
     },   
     delete: function (sale_id, company_id) {
-        console.log(sale_id)
         return new Promise((resolve, reject) => {
             functions.executeSql(
                 `
@@ -132,7 +134,8 @@ let salesService = {
                         p.value,
                         p.description,
                         p.cost,
-                        sp.quantity
+                        sp.quantity,
+                        p.current_stock AS available_quantity
                     FROM
                         products p
                     INNER JOIN
@@ -156,7 +159,8 @@ let salesService = {
                         s.name,
                         s.duration,
                         s.observations,
-                        s.cost
+                        s.cost,
+                        s.value
                     FROM
                         services s
                     INNER JOIN

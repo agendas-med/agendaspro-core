@@ -1,7 +1,8 @@
-const mysql = require("../mysql").pool;
+const { pool, mysql } = require("../mysql");
 const NodeCache = require('node-cache');
 const cache = new NodeCache();
 const crypto = require('crypto');
+const util = require('util');
 
 let queriesQuantity = 0;
 let queriesServedByCache = 0;
@@ -16,7 +17,7 @@ let functions = {
                 queriesServedByCache++;
                 resolve(cachedResult);
             } else {
-                mysql.getConnection((error, conn) => {
+                pool.getConnection((error, conn) => {
                     if (error) {
                         reject(error);
                         return;
@@ -45,6 +46,75 @@ let functions = {
                         resolve(results);
                     });
                 });
+            }
+        });
+    },
+    /**
+     * Executa uma série de queries dentro de uma transação MySQL.
+     * Garante que todas as operações sejam atômicas (ou todas são bem-sucedidas, ou todas falham).
+     * * @param {Array<Object>} queries - Um array de objetos, onde cada objeto contém uma string 'query' e um array de 'queryParams'.
+     * @returns {Promise<Array<Object>>} Uma promise que resolve com os resultados de cada query em um array, ou rejeita em caso de erro, desfazendo a transação.
+     * * @example
+     * // Exemplo de uso para registrar uma venda com múltiplos itens
+     * const queriesDeVenda = [
+     * {
+     * query: "INSERT INTO orders (customer_id, order_date) VALUES (?, NOW())",
+     * queryParams: [101]
+     * },
+     * {
+     * query: "UPDATE products SET current_stock = current_stock - ? WHERE id = ?",
+     * queryParams: [2, 50] // Saída de 2 unidades do produto de ID 50
+     * },
+     * {
+     * query: "UPDATE products SET current_stock = current_stock - ? WHERE id = ?",
+     * queryParams: [1, 51] // Saída de 1 unidade do produto de ID 51
+     * }
+     * ];
+     * * executeTransaction(queriesDeVenda)
+     * .then(results => {
+     * console.log("Transação concluída com sucesso:", results);
+     * })
+     * .catch(error => {
+     * console.error("Erro na transação:", error);
+     * });
+     */
+    executeTransaction(queries) {
+        return new Promise(async (resolve, reject) => {
+            let conn;
+            try {
+                const getConnection = util.promisify(pool.getConnection).bind(pool);
+                conn = await getConnection();
+                
+                const beginTransaction = util.promisify(conn.beginTransaction).bind(conn);
+                const query = util.promisify(conn.query).bind(conn);
+                const commit = util.promisify(conn.commit).bind(conn);
+
+                await beginTransaction();
+
+                const results = [];
+                for (const q of queries) {
+                    const rows = await query(q.query, q.queryParams);
+                    results.push(rows);
+                }
+
+                await commit();
+                resolve(results);
+
+            } catch (error) {
+                if (conn) {
+                    try {
+                        const rollback = util.promisify(conn.rollback).bind(conn);
+
+                        await rollback();
+                    } catch (rollbackError) {
+                        console.error("Erro durante o rollback:", rollbackError);
+                    }
+                }
+                reject(error);
+            } finally {
+                if (conn) {
+                    conn.release();
+                }
             }
         });
     },

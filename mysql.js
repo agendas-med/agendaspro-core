@@ -12,3 +12,4 @@ let pool = mysql.createPool({
 });
 
 exports.pool = pool;
+exports.mysql = mysql;

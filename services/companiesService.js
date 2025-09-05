@@ -796,7 +796,7 @@ let companiesService = {
             functions.executeSql(
                 `
                     SELECT 
-                        p.id, p.name, p.value, p.cost, p.description, p.unit_of_measure, um.name AS unit_of_measure_name, um.abbreviation AS unit_of_measure_abbreviation
+                        p.id, p.name, p.value, p.cost, p.description, p.unit_of_measure, um.name AS unit_of_measure_name, um.abbreviation AS unit_of_measure_abbreviation, p.current_stock AS available_quantity
                     FROM 
                         products p
                     INNER JOIN

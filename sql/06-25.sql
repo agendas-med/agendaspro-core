@@ -61,3 +61,16 @@ insert into versaodb (version) values ("2025.06.04");
 alter table sales_products add column quantity int not null;
 
 insert into versaodb (version) values ("2025.07.01");
+
+alter table products add column current_stock float not null default 0;
+
+create table stock_movements (
+	id int not null primary key auto_increment,
+    product_id int not null,
+    quantity float not null,
+    type enum("add", "remove") not null,
+    movement_date datetime not null default now(),
+    constraint FK_stock_movements_product_id foreign key (product_id) references products(id) on delete cascade
+);
+
+insert into versaodb (version) values ("2025.09.01");
