@@ -35,7 +35,7 @@ let stockService = {
                     query: "INSERT INTO stock_movements (product_id, quantity, type) VALUES (?, ?, ?)",
                     queryParams: [product_id, quantity, "add"]
                 }
-            ];
+            ]
 
             functions.executeTransaction(queries).then(() => {
                 resolve();

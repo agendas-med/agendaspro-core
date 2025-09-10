@@ -17,8 +17,8 @@ let financialService = {
                         a.date AS due_date,
                         SUM(s.value) AS value,
                         CASE 
-                            WHEN a.canceled = 0 AND a.status = "realizado" AND a.date <= CURDATE() THEN "Pago"
-                            WHEN a.date >= CURDATE() THEN "Em Aberto"
+                            WHEN a.canceled = 0 AND a.status = "realizado" AND a.date <= NOW() THEN "Pago"
+                            WHEN a.date >= NOW() THEN "Em Aberto"
                             ELSE "Atrasado"
                         END AS status
                     FROM

@@ -80,6 +80,11 @@ let functions = {
      */
     executeTransaction(queries) {
         return new Promise(async (resolve, reject) => {
+            queries.push({
+                query: "SET time_zone = '-03:00'",
+                queryParams: []
+            });
+            
             let conn;
             try {
                 const getConnection = util.promisify(pool.getConnection).bind(pool);
@@ -92,6 +97,7 @@ let functions = {
                 await beginTransaction();
 
                 const results = [];
+
                 for (const q of queries) {
                     const rows = await query(q.query, q.queryParams);
                     results.push(rows);
