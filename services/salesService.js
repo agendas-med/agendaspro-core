@@ -5,38 +5,60 @@ const _stockService = require("./stockService");
 
 let salesService = {
     create: function (company_id, customer_id, appointment_id, products, status) {
-        return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                    INSERT INTO
-                        sales
-                        (company_id, customer_id, appointment_id, status)
-                    VALUES
-                        (?, ?, ?, ?)
-                `, [company_id, customer_id, appointment_id, status]
-            ).then((results) => {
-                if (products.length == 0) {
-                    resolve();
-                }
+        return new Promise(async (resolve, reject) => {
+            try {
+                let unavailableProducts = [];
 
                 for (let i = 0; i < products.length; i++) {
-                    let promises = [];
                     let currentProduct = products[i];
+                    let currentProductAvailableQuantity = await functions.returnColumn("products", currentProduct.id, "current_stock", "id");
 
-                    promises.push(
-                        this.insertProductInSale(results.insertId, currentProduct.id, currentProduct.quantity)
-                    )
+                    if (currentProduct.quantity > currentProductAvailableQuantity) {
+                        unavailableProducts.push({availableQuantity: currentProductAvailableQuantity, product: currentProduct});
+                    }
+                }
 
-                    Promise.all(promises).then(() => {
-                        this.returnSales(company_id, true);
-                        resolve();
+                if (unavailableProducts.length > 0) {
+                    let returnString = `Um ou mais produtos estão indisponíveis para esta quantidade: \n`;
+
+                    for (let i = 0; i < unavailableProducts.length; i++) {
+                        returnString += "\n" + unavailableProducts[i].product.name + " (Disponível: " + unavailableProducts[i].availableQuantity + ")";
+                    }
+
+                    reject(returnString);
+                } else {
+                    functions.executeSql(
+                        `
+                            INSERT INTO
+                                sales
+                                (company_id, customer_id, appointment_id, status)
+                            VALUES
+                                (?, ?, ?, ?)
+                        `, [company_id, customer_id, appointment_id, status]
+                    ).then((results) => {
+                        let promises = [];
+
+                        for (let i = 0; i < products.length; i++) {
+                            let currentProduct = products[i];
+                            
+                            promises.push(
+                                this.insertProductInSale(results.insertId, currentProduct.id, currentProduct.quantity)
+                            )
+                        }
+
+                        Promise.all(promises).then(() => {
+                            this.returnSales(company_id, true);
+                            resolve();
+                        }).catch((error) => {
+                            reject(error);
+                        })
                     }).catch((error) => {
                         reject(error);
                     })
                 }
-            }).catch((error) => {
+            } catch (error) {
                 reject(error);
-            })
+            }
         });
     },   
     isFinishedSale: function (saleId) {
@@ -68,47 +90,66 @@ let salesService = {
 
                 if (isFinishedSale) {
                     reject("Impossível alterar a venda pois já está concluída");
-                    return;
-                }
+                } else {
+                    let unavailableProducts = [];
 
-                functions.executeSql(
-                    `
-                        UPDATE
-                            sales
-                        SET
-                            customer_id = ?, appointment_id = ?, status = ?
-                        WHERE
-                            company_id = ? AND id = ?
-                    `, [customer_id, appointment_id, status, company_id, sale_id]
-                ).then((results) => {
-                    this.removeProductsFromSale(sale_id).then(() => {
-                        let promises = [];
+                    for (let i = 0; i < products.length; i++) {
+                        let currentProduct = products[i];
+                        let currentProductAvailableQuantity = await functions.returnColumn("products", currentProduct.id, "current_stock", "id");
 
-                        for (let i = 0; i < products.length; i++) {
-                            let currentProduct = products[i];
-                            
-                            promises.push(
-                                this.insertProductInSale(sale_id, currentProduct.id, currentProduct.quantity)
-                            )
+                        if (currentProduct.quantity > currentProductAvailableQuantity) {
+                            unavailableProducts.push({availableQuantity: currentProductAvailableQuantity, product: currentProduct});
+                        }
+                    }
+                    
+                    if (unavailableProducts.length > 0) {
+                        let returnString = `Um ou mais produtos estão indisponíveis para esta quantidade: \n`;
 
-                            if (status == "realizada") {
-                                promises.push(_stockService.remove(currentProduct.id, currentProduct.quantity));
-                            }
+                        for (let i = 0; i < unavailableProducts.length; i++) {
+                            returnString += "\n" + unavailableProducts[i].product.name + " (Disponível: " + unavailableProducts[i].availableQuantity + ")";
                         }
 
-                        Promise.all(promises).then(() => {
-                            this.returnSales(company_id, true);                            
+                        reject(returnString);
+                    } else {
+                        functions.executeSql(
+                            `
+                                UPDATE
+                                    sales
+                                SET
+                                    customer_id = ?, appointment_id = ?, status = ?
+                                WHERE
+                                    company_id = ? AND id = ?
+                            `, [customer_id, appointment_id, status, company_id, sale_id]
+                        ).then((results) => {
+                            this.removeProductsFromSale(sale_id).then(async () => {
+                                let promises = [];
 
-                            resolve();
+                                for (let i = 0; i < products.length; i++) {
+                                    let currentProduct = products[i];
+
+                                    promises.push(
+                                        this.insertProductInSale(results.insertId, currentProduct.id, currentProduct.quantity)
+                                    )
+
+                                    if (status == "realizada") {
+                                        promises.push(_stockService.remove(currentProduct.id, currentProduct.quantity));
+                                    }
+                                }
+
+                                Promise.all(promises).then(() => {
+                                    this.returnSales(company_id, true);
+                                    resolve();
+                                }).catch((error) => {
+                                    reject(error);
+                                })
+                            }).catch((error) => {
+                                reject(error);
+                            })
                         }).catch((error) => {
                             reject(error);
                         })
-                    }).catch((error) => {
-                        reject(error);
-                    })
-                }).catch((error) => {
-                    reject(error);
-                })
+                    }
+                }
             } catch (error) {
                 reject(error);
             }
