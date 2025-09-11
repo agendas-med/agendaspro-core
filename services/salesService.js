@@ -1,6 +1,7 @@
 const functions = require("../utils/functions");
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
+const _stockService = require("./stockService");
 
 let salesService = {
     create: function (company_id, customer_id, appointment_id, products, status) {
@@ -38,40 +39,79 @@ let salesService = {
             })
         });
     },   
+    isFinishedSale: function (saleId) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                let result = await functions.executeSql(
+                    `
+                        SELECT
+                            id
+                        FROM
+                            sales
+                        WHERE
+                            status = "realizada"
+                        AND
+                            id = ?
+                    `, [saleId]
+                )
+
+                resolve(result.length > 0);
+            } catch (error) {
+                reject(error);
+            }
+        })
+    },
     update: function (sale_id, company_id, customer_id, appointment_id, products, status) {
-        return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                    UPDATE
-                        sales
-                    SET
-                        customer_id = ?, appointment_id = ?, status = ?
-                    WHERE
-                        company_id = ? AND id = ?
-                `, [customer_id, appointment_id, status, company_id, sale_id]
-            ).then((results) => {
-                this.removeProductsFromSale(sale_id).then(() => {
-                    for (let i = 0; i < products.length; i++) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                let isFinishedSale = await this.isFinishedSale(sale_id);
+
+                if (isFinishedSale) {
+                    reject("Impossível alterar a venda pois já está concluída");
+                    return;
+                }
+
+                functions.executeSql(
+                    `
+                        UPDATE
+                            sales
+                        SET
+                            customer_id = ?, appointment_id = ?, status = ?
+                        WHERE
+                            company_id = ? AND id = ?
+                    `, [customer_id, appointment_id, status, company_id, sale_id]
+                ).then((results) => {
+                    this.removeProductsFromSale(sale_id).then(() => {
                         let promises = [];
-                        let currentProduct = products[i];
-                        
-                        promises.push(
-                            this.insertProductInSale(sale_id, currentProduct.id, currentProduct.quantity)
-                        )
+
+                        for (let i = 0; i < products.length; i++) {
+                            let currentProduct = products[i];
+                            
+                            promises.push(
+                                this.insertProductInSale(sale_id, currentProduct.id, currentProduct.quantity)
+                            )
+
+                            if (status == "realizada") {
+                                promises.push(_stockService.remove(currentProduct.id, currentProduct.quantity));
+                            }
+                        }
 
                         Promise.all(promises).then(() => {
-                            this.returnSales(company_id, true);
+                            this.returnSales(company_id, true);                            
+
                             resolve();
                         }).catch((error) => {
                             reject(error);
                         })
-                    }
+                    }).catch((error) => {
+                        reject(error);
+                    })
                 }).catch((error) => {
                     reject(error);
                 })
-            }).catch((error) => {
+            } catch (error) {
                 reject(error);
-            })
+            }
         });
     },   
     delete: function (sale_id, company_id) {
