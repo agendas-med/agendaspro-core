@@ -74,3 +74,24 @@ create table stock_movements (
 );
 
 insert into versaodb (version) values ("2025.09.01");
+
+create table payments (
+	id int not null primary key auto_increment,
+    company_id int not null,
+    sale_id int not null,
+    amount float not null,
+    customer_id int not null,
+    payment_type enum('pix', 'cartao_debito', 'cartao_credito', 'dinheiro') not null,
+    create_date datetime not null default now(),
+    constraint FK_payments_company_id foreign key (company_id) references companies(id) on delete cascade,
+    constraint FK_payments_sale_id foreign key (sale_id) references sales(id) on delete cascade,
+    constraint FK_payments_customer_id foreign key (customer_id) references customers(id) on delete cascade,
+    
+    index IDX_payments_company_id (company_id),
+    index IDX_payments_sale_id (sale_id),
+    index IDX_payments_customer_id (customer_id),
+    index IDX_payments_create_date (create_date),
+    index IDX_payments_payment_type (payment_type)
+);
+
+insert into versaodb (version) values ("2025.09.02");

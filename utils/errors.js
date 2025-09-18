@@ -20,6 +20,11 @@ const errors = {
         min: (limit) => `O campo deve um numero maior ou igual a ${limit}.`,
         max: (limit) => `O campo deve um numero menor ou igual a ${limit}.`,
     },
+    float: {
+        base: () => "O campo deve ser um número com ponto flutuante.",
+        min: (limit) => `O campo deve um numero maior ou igual a ${limit}.`,
+        max: (limit) => `O campo deve um numero menor ou igual a ${limit}.`,
+    },
     array: {
         base: () => "O campo deve ser um array.",
         includes: () => "Um ou mais itens do array são inválidos."

@@ -5,6 +5,7 @@ const appointments = require("../schemas/appointments");
 const sales = require("../schemas/sales");
 const products = require("../schemas/products");
 const services = require("../schemas/services");
+const payments = require("../schemas/payments");
 const _companiesService = require('../services/companiesService');
 
 let validate = {
@@ -31,7 +32,8 @@ let validate = {
         appointments: appointments,
         sales: sales,
         products: products,
-        services: services
+        services: services,
+        payments: payments
     },
     validateCompanyAccess: (req, res, next) => {
         const userId = req.usuario.id;

@@ -265,45 +265,107 @@ let salesService = {
                     SELECT
                         s.*,
                         c.id AS customer_id,
-                        c.name AS customer_name
+                        c.name AS customer_name,
+                        SUM(COALESCE(p.amount, 0)) AS total_paid,
+                        COALESCE(
+                            JSON_ARRAYAGG(
+                                JSON_OBJECT(
+                                    'id', p.id,
+                                    'amount', p.amount,
+                                    'payment_type', p.payment_type
+                                )
+                            ),
+                            '[]'
+                        ) AS payments
                     FROM
                         sales AS s
                     INNER JOIN
                         customers AS c ON c.id = s.customer_id
+                    LEFT JOIN
+                        payments p ON p.sale_id = s.id
                     WHERE
-                        s.company_id = ?;
+                        s.company_id = ?
+                    GROUP BY
+                        s.id, c.id, c.name;
                 `, [company_id], !clearCache
             ).then(async (results) => {
                 for (let i = 0; i < results.length; i++) {
                     let currentSale = results[i];
+
+                    currentSale["debts_list"] = [];
+                    currentSale["payments_summary"] = {}; // Novo objeto para a soma dos pagamentos
 
                     let products = await this.returnSaleProducts(currentSale.id, clearCache);
                     let services = await this.returnSaleServices(currentSale.id, clearCache);
                     let productsValuesSum = 0;
                     let servicesValuesSum = 0;
 
+                    if (currentSale.payments && currentSale.payments[0] && currentSale.payments[0].id !== null) {
+                        JSON.parse(currentSale.payments).forEach(p => {
+                            if (!currentSale.payments_summary[p.payment_type]) {
+                                currentSale.payments_summary[p.payment_type] = 0;
+                            }
+
+                            currentSale.payments_summary[p.payment_type] += p.amount;
+                        });
+                    }
+                    
                     currentSale["products"] = products;
                     currentSale["services"] = services;
                     
                     for (let j = 0; j < products.length; j++) {
                         let currentProduct = products[j];
-
+                        currentSale.debts_list.push({
+                            value: currentProduct.value * currentProduct.quantity,
+                            name: currentProduct.name
+                        });
                         productsValuesSum += (currentProduct.value * currentProduct.quantity);
                     }
 
                     for (let j = 0; j < services.length; j++) {
                         let currentService = services[j];
-
+                        currentSale.debts_list.push({
+                            value: currentService.value,
+                            name: currentService.name
+                        });
                         servicesValuesSum += currentService.value;
                     }
 
                     let finalValue = productsValuesSum + servicesValuesSum;
 
                     currentSale["total"] = finalValue;
+                    currentSale.payments = JSON.parse(currentSale.payments);
                     currentSale = {...currentSale, products: products};
                 }
-
                 resolve(results);
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
+    insertPayment: function (company_id, sale_id, amount, payment_type, customer_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    INSERT INTO
+                        payments
+                        (
+                            company_id,
+                            sale_id,
+                            amount,
+                            customer_id,
+                            payment_type
+                        )
+                    VALUES
+                        (?, ?, ?, ?, ?)
+                `, [company_id, sale_id, amount, customer_id, payment_type]
+            ).then((results) => {
+                if (results.insertId) {
+                    this.returnSales(company_id, true);
+                    resolve();
+                } else {
+                    reject("Ocorreu um erro ao inserir o pagamento");
+                }
             }).catch((error) => {
                 reject(error);
             })
