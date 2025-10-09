@@ -23,6 +23,10 @@ router.post("/", login, validate.validateRequest(validate.schemas.sales.create),
 
 // Atualizar uma venda
 router.patch("/:id", login, validate.validateRequest(validate.schemas.sales.create), validate.validateCompanyAccess, (req, res, next) => {
+    if (req.query.finish == "true") {
+        req.body.status = "realizada";
+    }
+
     _salesService.update(
         req.params.id,
         req.headers['selected-company'],

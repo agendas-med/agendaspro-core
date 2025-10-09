@@ -14,7 +14,7 @@ let salesService = {
                     let currentProductAvailableQuantity = await functions.returnColumn("products", currentProduct.id, "current_stock", "id");
 
                     if (currentProduct.quantity > currentProductAvailableQuantity) {
-                        unavailableProducts.push({availableQuantity: currentProductAvailableQuantity, product: currentProduct});
+                        unavailableProducts.push({ availableQuantity: currentProductAvailableQuantity, product: currentProduct });
                     }
                 }
 
@@ -40,7 +40,7 @@ let salesService = {
 
                         for (let i = 0; i < products.length; i++) {
                             let currentProduct = products[i];
-                            
+
                             promises.push(
                                 this.insertProductInSale(results.insertId, currentProduct.id, currentProduct.quantity)
                             )
@@ -60,7 +60,7 @@ let salesService = {
                 reject(error);
             }
         });
-    },   
+    },
     isFinishedSale: function (saleId) {
         return new Promise(async (resolve, reject) => {
             try {
@@ -98,10 +98,10 @@ let salesService = {
                         let currentProductAvailableQuantity = await functions.returnColumn("products", currentProduct.id, "current_stock", "id");
 
                         if (currentProduct.quantity > currentProductAvailableQuantity) {
-                            unavailableProducts.push({availableQuantity: currentProductAvailableQuantity, product: currentProduct});
+                            unavailableProducts.push({ availableQuantity: currentProductAvailableQuantity, product: currentProduct });
                         }
                     }
-                    
+
                     if (unavailableProducts.length > 0) {
                         let returnString = `Um ou mais produtos estão indisponíveis para esta quantidade: \n`;
 
@@ -111,6 +111,26 @@ let salesService = {
 
                         reject(returnString);
                     } else {
+                        if (status == "realizada") {
+                            let payments = await this.returnPayments(sale_id);
+
+                            if (!payments.length) {
+                                reject("A venda não pode ser concluída pois existem valores em aberto");
+                                return;
+                            }
+
+                            let paymentsSum = payments.reduce((acumulador, pagamento) => {                                
+                                return acumulador + parseFloat(pagamento.amount);
+                            }, 0);
+
+                            let sale = await this.returnSale(sale_id);
+
+                            if (paymentsSum < sale.total) {
+                                reject("A venda não pode ser concluída pois existem valores em aberto");
+                                return;
+                            }
+                        }
+
                         functions.executeSql(
                             `
                                 UPDATE
@@ -128,7 +148,7 @@ let salesService = {
                                     let currentProduct = products[i];
 
                                     promises.push(
-                                        this.insertProductInSale(results.insertId, currentProduct.id, currentProduct.quantity)
+                                        this.insertProductInSale(sale_id, currentProduct.id, currentProduct.quantity)
                                     )
 
                                     if (status == "realizada") {
@@ -154,7 +174,7 @@ let salesService = {
                 reject(error);
             }
         });
-    },   
+    },
     delete: function (sale_id, company_id) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
@@ -258,6 +278,49 @@ let salesService = {
             })
         })
     },
+    returnSale: function (sale_id) {
+        return new Promise((resolve, reject) => {
+            functions.executeSql(
+                `
+                    SELECT
+                        s.*,
+                        c.id AS customer_id,
+                        c.name AS customer_name,
+                        SUM(COALESCE(p.amount, 0)) AS total_paid,
+                        IF(
+                            COUNT(p.id) > 0,
+                            JSON_ARRAYAGG(
+                                JSON_OBJECT(
+                                    'id', p.id,
+                                    'amount', p.amount,
+                                    'payment_type', p.payment_type
+                                )
+                            ),
+                            '[]'
+                        ) AS payments
+                    FROM
+                        sales AS s
+                    INNER JOIN
+                        customers AS c ON c.id = s.customer_id
+                    LEFT JOIN
+                        payments p ON p.sale_id = s.id
+                    WHERE
+                        s.id = ?
+                    GROUP BY
+                        s.id, c.id, c.name;
+                `, [sale_id],
+            ).then(async (results) => {
+                if (results.length) {
+                    results[0] = await this.insertSalePaymentsAndValueAndProducts(results[0], true);
+                    resolve(results[0]);
+                } else {
+                    reject("Nenhuma venda encontrada");
+                }
+            }).catch((error) => {
+                reject(error);
+            });
+        });
+    },
     returnSales: function (company_id, clearCache = false) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
@@ -267,7 +330,8 @@ let salesService = {
                         c.id AS customer_id,
                         c.name AS customer_name,
                         SUM(COALESCE(p.amount, 0)) AS total_paid,
-                        COALESCE(
+                        IF(
+                            COUNT(p.id) > 0,
                             JSON_ARRAYAGG(
                                 JSON_OBJECT(
                                     'id', p.id,
@@ -290,58 +354,60 @@ let salesService = {
                 `, [company_id], !clearCache
             ).then(async (results) => {
                 for (let i = 0; i < results.length; i++) {
-                    let currentSale = results[i];
-
-                    currentSale["debts_list"] = [];
-                    currentSale["payments_summary"] = {}; // Novo objeto para a soma dos pagamentos
-
-                    let products = await this.returnSaleProducts(currentSale.id, clearCache);
-                    let services = await this.returnSaleServices(currentSale.id, clearCache);
-                    let productsValuesSum = 0;
-                    let servicesValuesSum = 0;
-
-                    if (currentSale.payments && currentSale.payments[0] && currentSale.payments[0].id !== null) {
-                        JSON.parse(currentSale.payments).forEach(p => {
-                            if (!currentSale.payments_summary[p.payment_type]) {
-                                currentSale.payments_summary[p.payment_type] = 0;
-                            }
-
-                            currentSale.payments_summary[p.payment_type] += p.amount;
-                        });
-                    }
-                    
-                    currentSale["products"] = products;
-                    currentSale["services"] = services;
-                    
-                    for (let j = 0; j < products.length; j++) {
-                        let currentProduct = products[j];
-                        currentSale.debts_list.push({
-                            value: currentProduct.value * currentProduct.quantity,
-                            name: currentProduct.name
-                        });
-                        productsValuesSum += (currentProduct.value * currentProduct.quantity);
-                    }
-
-                    for (let j = 0; j < services.length; j++) {
-                        let currentService = services[j];
-                        currentSale.debts_list.push({
-                            value: currentService.value,
-                            name: currentService.name
-                        });
-                        servicesValuesSum += currentService.value;
-                    }
-
-                    let finalValue = productsValuesSum + servicesValuesSum;
-
-                    currentSale["total"] = finalValue;
-                    currentSale.payments = JSON.parse(currentSale.payments);
-                    currentSale = {...currentSale, products: products};
+                    results[i] = await this.insertSalePaymentsAndValueAndProducts(results[i], clearCache);
                 }
                 resolve(results);
             }).catch((error) => {
                 reject(error);
             });
         });
+    },
+    insertSalePaymentsAndValueAndProducts: async function (currentSale, clearCache = false) {
+        currentSale["debts_list"] = [];
+        currentSale["payments_summary"] = {}; // Novo objeto para a soma dos pagamentos
+
+        let products = await this.returnSaleProducts(currentSale.id, clearCache);
+        let services = await this.returnSaleServices(currentSale.id, clearCache);
+        let productsValuesSum = 0;
+        let servicesValuesSum = 0;
+
+        if (currentSale.payments && currentSale.payments[0] && currentSale.payments[0].id !== null) {
+            JSON.parse(currentSale.payments).forEach(p => {
+                if (!currentSale.payments_summary[p.payment_type]) {
+                    currentSale.payments_summary[p.payment_type] = 0;
+                }
+
+                currentSale.payments_summary[p.payment_type] += p.amount;
+            });
+        }
+
+        currentSale["products"] = products;
+        currentSale["services"] = services;
+
+        for (let j = 0; j < products.length; j++) {
+            let currentProduct = products[j];
+            currentSale.debts_list.push({
+                value: currentProduct.value * currentProduct.quantity,
+                name: currentProduct.name
+            });
+            productsValuesSum += (currentProduct.value * currentProduct.quantity);
+        }
+
+        for (let j = 0; j < services.length; j++) {
+            let currentService = services[j];
+            currentSale.debts_list.push({
+                value: currentService.value,
+                name: currentService.name
+            });
+            servicesValuesSum += currentService.value;
+        }
+
+        let finalValue = productsValuesSum + servicesValuesSum;
+
+        currentSale["total"] = finalValue;
+        currentSale.payments = JSON.parse(currentSale.payments);
+        currentSale = { ...currentSale, products: products };
+        return currentSale;
     },
     insertPayment: function (company_id, sale_id, amount, payment_type, customer_id) {
         return new Promise((resolve, reject) => {
@@ -369,6 +435,26 @@ let salesService = {
             }).catch((error) => {
                 reject(error);
             })
+        })
+    },
+    returnPayments: function (sale_id) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                let payments = await functions.executeSql(
+                    `
+                    SELECT
+                        *
+                    FROM
+                        payments
+                    WHERE
+                        sale_id = ?
+                `, [sale_id]
+                )
+
+                resolve(payments);
+            } catch (error) {
+                reject(error);
+            }
         })
     }
 }

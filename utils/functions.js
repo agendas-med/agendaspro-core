@@ -220,8 +220,6 @@ let functions = {
     },
     returnColumn: function (table, value, targetColumn, referenceColumn = "id") {
         return new Promise((resolve, reject) => {
-
-
             functions.executeSql(
                 `
                     SELECT
