@@ -4,7 +4,7 @@ const emailTemplates = require("../templates/emailTemplates");
 const _salesService = require("./salesService");
 
 let appointmentsService = {
-    create: function (company_id, customer_id, customer_name, date, duration, observations, services, status) {
+    create: function (company_id, customer_id, customer_name, date, duration, observations, services, status, addressData) {
         return new Promise((resolve, reject) => {
             // Define os valores para os campos checkin, checkout e canceled com base no status
             let checkin = null;
@@ -33,18 +33,16 @@ let appointmentsService = {
                     return functions.executeSql(
                         `
                         INSERT INTO appointments 
-                            (company_id, customer_id, customer_name, date, duration, observations, checkin, checkout, canceled)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (company_id, customer_id, customer_name, date, duration, observations, checkin, checkout, canceled, zip_code, address, number, complement, city, state)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         `, [
-                            company_id,
-                            customer_id,
-                            customer_name,
-                            date,
-                            duration,
-                            observations,
-                            checkin,
-                            checkout,
-                            canceled
+                            company_id, customer_id, customer_name, date, duration, observations, checkin, checkout, canceled,
+                            addressData?.zip_code || null,
+                            addressData?.address || null,
+                            addressData?.number || null,
+                            addressData?.complement || null,
+                            addressData?.city || null,
+                            addressData?.state || null
                         ]
                     );
                 }
@@ -140,7 +138,7 @@ let appointmentsService = {
             })
         })
     },
-    update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, services, status) {
+    update: function (appointment_id, company_id, customer_id, customer_name, date, duration, observations, services, status, addressData) {
         return new Promise((resolve, reject) => {
             // Define os valores que serão passados para o UPDATE
             let checkin = null;
@@ -170,17 +168,16 @@ let appointmentsService = {
                     return functions.executeSql(
                         `
                         UPDATE appointments
-                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, checkin = ?, checkout = ?, canceled = ?
+                        SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?, checkin = ?, checkout = ?, canceled = ?, zip_code = ?, address = ?, number = ?, complement = ?, city = ?, state = ?
                         WHERE id = ? AND company_id = ?
                         `, [
-                            customer_id,
-                            customer_name,
-                            date,
-                            duration,
-                            observations,
-                            checkin,
-                            checkout,
-                            canceled,
+                            customer_id, customer_name, date, duration, observations, checkin, checkout, canceled,
+                            addressData?.zip_code || null,
+                            addressData?.address || null,
+                            addressData?.number || null,
+                            addressData?.complement || null,
+                            addressData?.city || null,
+                            addressData?.state || null,
                             appointment_id,
                             company_id
                         ]

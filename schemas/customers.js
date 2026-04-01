@@ -41,7 +41,7 @@ let schema = {
             'string.min': errors.string.min(10),
             'string.max': errors.string.max(11)
         }),
-        image: Joi.string().max(255).allow("").messages({
+        image: Joi.string().allow("").messages({
             'string.base': errors.string.base(),
             'string.max': errors.string.max(255)
         })

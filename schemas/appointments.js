@@ -76,6 +76,25 @@ let schema = {
         status: Joi.string().valid('agendado', 'iniciado', 'realizado', 'cancelado').required().messages({
             'any.only': 'O status deve ser "agendado", "iniciado", "realizado" ou "cancelado".',
             'any.required': errors.string.empty()
+        }),
+        zip_code: Joi.string().pattern(/^\d{5}-\d{3}$/).allow(null, "").messages({
+            'string.pattern.base': errors.string.pattern()
+        }),
+        address: Joi.string().max(255).allow(null, "").messages({
+            'string.max': errors.string.max(255)
+        }),
+        number: Joi.string().max(20).allow(null, "").messages({
+            'string.max': errors.string.max(20)
+        }),
+        complement: Joi.string().max(100).allow(null, "").messages({
+            'string.max': errors.string.max(100)
+        }),
+        city: Joi.string().max(100).allow(null, "").messages({
+            'string.max': errors.string.max(100)
+        }),
+        state: Joi.string().length(2).uppercase().allow(null, "").messages({
+            'string.length': errors.string.length(2),
+            'string.uppercase': errors.string.uppercase()
         })
     })
 }

@@ -6,7 +6,7 @@ let pool = mysql.createPool({
     database: process.env.MYSQL_DATABASE,
     host: process.env.MYSQL_HOST,
     port: process.env.MYSQL_PORT,
-    connectionLimit: 8,
+    connectionLimit: process.env.MYSQL_CONNECTION_LIMIT || 10,
     multipleStatements: true,
     timezone: '-03:00'
 });

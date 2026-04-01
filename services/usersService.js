@@ -111,19 +111,31 @@ let usersService = {
     },
     checkJwt: function (tokenParam) {
         return new Promise((resolve, reject) => {
+            if (!tokenParam || !tokenParam.includes(" ")) {
+                return reject("Token mal formatado");
+            }
+
             let token = tokenParam.split(" ")[1];
-            jwt.verify(token, process.env.JWT_KEY, (err, decoded) => {
+            
+            jwt.verify(token, process.env.JWT_KEY, { ignoreExpiration: true }, (err, decoded) => {
                 if (err) {
-                    reject("Token inválido");
-                } else {
-                    let newToken = jwt.sign({
-                        id: decoded.id,
-                        email: decoded.email,
-                        name: decoded.name
-                    }, process.env.JWT_KEY, {expiresIn: "8h"});
-                    
-                    resolve(newToken);
+                    return reject("Token inválido ou corrompido");
+                } 
+                
+                const now = Math.floor(Date.now() / 1000); 
+                const limiteRenovacao = 7 * 24 * 60 * 60;
+
+                if (decoded.exp && (now - decoded.exp) > limiteRenovacao) {
+                    return reject("Sessão muito antiga. É necessário fazer login novamente.");
                 }
+
+                let newToken = jwt.sign({
+                    id: decoded.id,
+                    email: decoded.email,
+                    name: decoded.name
+                }, process.env.JWT_KEY, { expiresIn: "8h" });
+                
+                resolve(newToken);
             })
         })
     },
@@ -137,10 +149,10 @@ let usersService = {
                 INNER JOIN
                     company_members cm ON cm.company_id = c.id
                 WHERE
-                    cm.user_id = ${user_id}
+                    cm.user_id = ?
             `;
 
-            functions.executeSql(companySQL, []).then((companies) => {
+            functions.executeSql(companySQL, [user_id]).then((companies) => {
                 if (!company_id && companies.length) {
                     company_id = companies[0].id;
                 }

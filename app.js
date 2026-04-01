@@ -16,8 +16,8 @@ const utilsRoute = require("./routes/utils");
 const stockRoute = require("./routes/stock");
 
 app.use(morgan('dev'));
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
 require('dotenv').config();
 

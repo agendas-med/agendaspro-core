@@ -207,6 +207,7 @@ let companiesService = {
         functions.insertCompanyPreference(company_id, "notificate_scheduling", 1);
         functions.insertCompanyPreference(company_id, "notificate_in_app_payment", 1);
         functions.insertCompanyPreference(company_id, "notificate_scheduling_cancelation", 1);
+        functions.insertCompanyPreference(company_id, "accept_custom_location", 0);
     },
     returnCompanyConfigurations: function (company_id, clearCache = false) {
         return new Promise((resolve, reject) => {

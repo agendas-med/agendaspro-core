@@ -1,25 +1,61 @@
 const functions = require("../utils/functions");
 const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
+const { uploadImageToS3 } = require("../config/s3");
 
 let customersService = {
     create: function (company_id, name, cpf, birthday, tel, image) {
-        return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                INSERT INTO customers (name, cpf, birthday, tel, image, company_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-                `, [name, cpf, birthday, tel, image, company_id]
-            ).then((results) => {
-                if (results.affectedRows > 0) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const folderName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
+                const path = `companies/${company_id}/clientes/${folderName}`;
+                
+                const imageUrl = await uploadImageToS3(image, path);
+
+                functions.executeSql(
+                    `
+                    INSERT INTO customers (name, cpf, birthday, tel, image, company_id)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    `, [name, cpf, birthday, tel, imageUrl, company_id]
+                ).then((results) => {
+                    if (results.affectedRows > 0) {
+                        this.getAllByCompany(company_id, true);
+                        resolve();
+                    } else {
+                        reject("Ocorreu um erro ao cadastrar o cliente");
+                    }
+                }).catch((error) => {
+                    reject(error);
+                });
+            } catch (error) {
+                reject("Erro ao fazer upload da imagem: " + error.message);
+            }
+        });
+    },
+    
+    update: function (company_id, customer_id, name, cpf, birthday, tel, image) {
+        return new Promise(async (resolve, reject) => {
+            try {
+                const folderName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
+                const path = `companies/${company_id}/clientes/${folderName}`;
+
+                const imageUrl = await uploadImageToS3(image, path);
+
+                functions.executeSql(
+                    `
+                    UPDATE customers 
+                    SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?
+                    WHERE id = ?
+                    `, [name, cpf, birthday, tel, imageUrl, customer_id]
+                ).then(() => {
                     this.getAllByCompany(company_id, true);
                     resolve();
-                } else {
-                    reject("Ocorreu um erro ao cadastrar o cliente");
-                }
-            }).catch((error) => {
-                reject(error);
-            });
+                }).catch((error) => {
+                    reject(error);
+                });
+            } catch (error) {
+                reject("Erro ao fazer upload da imagem: " + error.message);
+            }
         });
     },
     delete: function (company_id, customer_id) {
@@ -34,22 +70,6 @@ let customersService = {
                 } else {
                     reject("Cliente não encontrado");
                 }
-            }).catch((error) => {
-                reject(error);
-            });
-        });
-    },
-    update: function (company_id, customer_id, name, cpf, birthday, tel, image) {
-        return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                UPDATE customers 
-                SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?
-                WHERE id = ?
-                `, [name, cpf, birthday, tel, image, customer_id]
-            ).then(() => {
-                this.getAllByCompany(company_id, true);
-                resolve();
             }).catch((error) => {
                 reject(error);
             });
@@ -103,6 +123,7 @@ let customersService = {
             });
         });
     },
+
     find: function (company_id, search_string) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
