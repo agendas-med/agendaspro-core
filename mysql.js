@@ -8,7 +8,8 @@ let pool = mysql.createPool({
     port: process.env.MYSQL_PORT,
     connectionLimit: process.env.MYSQL_CONNECTION_LIMIT || 10,
     multipleStatements: true,
-    timezone: '-03:00'
+    timezone: '-03:00',
+    charset: 'utf8mb4'
 });
 
 exports.pool = pool;

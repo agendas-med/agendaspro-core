@@ -29,29 +29,31 @@ let companiesService = {
                         this.returnCompanyServices(company_id, clearCache).then((results4) => {
                             this.returnCompanyProducts(company_id, clearCache).then((results5) => {
                                 let company = {
-                                id: results[0]?.id || null,
-                                name: results[0]?.name || "",
-                                address: results[0]?.address || "",
-                                zip_code: results[0]?.zip_code || "",
-                                business_type: results[0]?.business_type || "",
-                                city: results[0]?.city || "",
-                                state: results[0]?.state || "",
-                                configurations: results2,
-                                roles: results3,
-                                services: results4,
-                                products: results5
-                            }
+                                    id: results[0]?.id || null,
+                                    name: results[0]?.name || "",
+                                    address: results[0]?.address || "",
+                                    zip_code: results[0]?.zip_code || "",
+                                    business_type: results[0]?.business_type || "",
+                                    city: results[0]?.city || "",
+                                    state: results[0]?.state || "",
+                                    configurations: results2,
+                                    roles: results3,
+                                    services: results4,
+                                    products: results5
+                                }
     
-                            if (company.id != null) {
-                                resolve(company);
-                            } else {
-                                reject();
-                            }
+                                if (company.id != null) {
+                                    resolve(company);
+                                } else {
+                                    reject("Empresa não encontrada"); 
+                                }
                             })
                         })
                     })
                 })
-            })
+            }).catch((error) => {
+                reject(error);
+            });
         })
     },
     returnBusinessTypes: function () {
@@ -208,6 +210,7 @@ let companiesService = {
         functions.insertCompanyPreference(company_id, "notificate_in_app_payment", 1);
         functions.insertCompanyPreference(company_id, "notificate_scheduling_cancelation", 1);
         functions.insertCompanyPreference(company_id, "accept_custom_location", 0);
+        functions.insertCompanyPreference(company_id, "require_payment_on_booking", 0);
     },
     returnCompanyConfigurations: function (company_id, clearCache = false) {
         return new Promise((resolve, reject) => {
@@ -306,14 +309,15 @@ let companiesService = {
                                 ${schedulesInsert.join(",")}
                         `, []
                     ).then(() => {
+                        this.returnCompanyConfigurations(company_id, true).catch(() => {});
                         resolve();
                     }).catch((error2) => {
                         reject(error2);
                     })
+                } else {
+                    this.returnCompanyConfigurations(company_id, true).catch(() => {});
+                    resolve();
                 }
-
-                this.returnCompanyConfigurations(company_id, true);
-                resolve();
                 
             }).catch((error) => {
                 reject(error);
@@ -352,15 +356,21 @@ let companiesService = {
                         id = ?
                 `, [name, address, city, state, business_type, zip_code, company_id]
             ).then((results) => {
-                if (results.affectedRows = 0) {
-                    reject("Ocorreu um erro ao alterar as informações da empresa");
+                if (results.affectedRows === 0) { 
+                    return reject("Ocorreu um erro ao alterar as informações da empresa");
                 }
 
                 this.editCompanyConfigurations(company_id, configurations).then(() => {
-                    this.returnCompany(company_id, true);
-                    _usersService.returnUserCompanies(user_id, true);
+                    this.returnCompany(company_id, user_id, true).catch(() => {});
+                    
+                    if (typeof _usersService !== 'undefined' && _usersService.returnUserCompanies) {
+                        _usersService.returnUserCompanies(user_id, true).catch(() => {});
+                    }
+                    
                     resolve();
-                })
+                }).catch((error) => {
+                    reject(error); 
+                });
             }).catch((error) => {
                 reject(error);
             })

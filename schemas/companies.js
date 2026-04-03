@@ -48,6 +48,8 @@ let schema = {
             'number.base': errors.integer.base(),
             'number.integer': errors.integer.integer()
         }),
+        products: Joi.array().optional(),
+        services: Joi.array().optional(),
         configurations: Joi.object({
             notifications: Joi.array().items(
                 Joi.object({

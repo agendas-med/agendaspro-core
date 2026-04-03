@@ -1,3 +1,11 @@
+const cron = require('node-cron');
+const notificationService = require('./services/notificationService');
+
+cron.schedule('* * * * *', async () => {
+    console.log("[Cron] Verificando lembretes de agendamento...");
+    await notificationService.sendHourlyReminders();
+});
+
 
 const express = require('express');
 const app = express();
@@ -14,6 +22,7 @@ const reportsRoute = require("./routes/reports");
 const salesRoute = require("./routes/sales");
 const utilsRoute = require("./routes/utils");
 const stockRoute = require("./routes/stock");
+const webhookRoute = require("./routes/webhook");
 
 app.use(morgan('dev'));
 app.use(bodyParser.json({ limit: '10mb' }));
@@ -46,6 +55,7 @@ app.use("/reports", reportsRoute);
 app.use("/sales", salesRoute);
 app.use("/utils", utilsRoute);
 app.use("/stock", stockRoute);
+app.use("/webhook", webhookRoute);
 
 app.use('/public', express.static('public'));
 
