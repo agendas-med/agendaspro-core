@@ -4,7 +4,7 @@ const emailTemplates = require("../templates/emailTemplates");
 const { uploadImageToS3 } = require("../config/s3");
 
 let customersService = {
-    create: function (company_id, name, cpf, birthday, tel, image) {
+    create: function (company_id, name, cpf, birthday, tel, image, email) {
         return new Promise(async (resolve, reject) => {
             try {
                 const folderName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
@@ -14,9 +14,9 @@ let customersService = {
 
                 functions.executeSql(
                     `
-                    INSERT INTO customers (name, cpf, birthday, tel, image, company_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    `, [name, cpf, birthday, tel, imageUrl, company_id]
+                    INSERT INTO customers (name, cpf, birthday, tel, image, company_id, email)
+                    VALUES (?, ?, ?, ?, ?, ?, )
+                    `, [name, cpf, birthday, tel, imageUrl, company_id, email]
                 ).then((results) => {
                     if (results.affectedRows > 0) {
                         this.getAllByCompany(company_id, true);
@@ -33,7 +33,7 @@ let customersService = {
         });
     },
     
-    update: function (company_id, customer_id, name, cpf, birthday, tel, image) {
+    update: function (company_id, customer_id, name, cpf, birthday, tel, image, email) {
         return new Promise(async (resolve, reject) => {
             try {
                 const folderName = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
@@ -44,9 +44,9 @@ let customersService = {
                 functions.executeSql(
                     `
                     UPDATE customers 
-                    SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?
+                    SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?, email = ?
                     WHERE id = ?
-                    `, [name, cpf, birthday, tel, imageUrl, customer_id]
+                    `, [name, cpf, birthday, tel, imageUrl, email, customer_id]
                 ).then(() => {
                     this.getAllByCompany(company_id, true);
                     resolve();
@@ -109,6 +109,7 @@ let customersService = {
                         id: customer.id,
                         name: customer.name,
                         cpf: customer.cpf,
+                        email: customer.email,
                         birthday: customer.birthday,
                         tel: customer.tel,
                         image: customer.image || "",
@@ -135,6 +136,7 @@ let customersService = {
                         id: customer.id,
                         name: customer.name,
                         cpf: customer.cpf,
+                        email: customer.email,
                         birthday: customer.birthday,
                         tel: customer.tel,
                         image: customer.image || ""

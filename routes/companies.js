@@ -4,6 +4,7 @@ const login = require("../middleware/login");
 const validate = require("../middleware/validate");
 const _companiesService = require("../services/companiesService");
 const functions = require("../utils/functions");
+const _asaasService = require("../services/asaasService");
 
 router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
     _companiesService.returnCompany(req.headers['selected-company'], req.usuario.id).then((results) => {
@@ -15,11 +16,11 @@ router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
 });
 
 router.post("/create_company", login, validate.validateRequest(validate.schemas.companies.createCompany), (req, res, next) => {
-    _companiesService.createCompany(req.usuario.id, req.body.name, req.body.address, req.body.zip_code, req.body.city, req.body.state, req.body.business_type).then(() => {
+    _companiesService.createCompany(req.usuario.id, req.body).then(() => {
         let response = functions.createResponse("Empresa criada com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(500).send({ message: error.message || error });
     })
 });
 
@@ -165,7 +166,8 @@ router.delete("/remove_user/:user_id", login, (req, res, next) => {
 
 router.post("/services", login, validate.validateRequest(validate.schemas.services.create), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.createService(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration).then(() => {
+        _companiesService.createService(req.headers['selected-company'], req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration, req.body.requires_location, req.body.accepts_quantity, req.body.measurement_unit_id).then(() => {
+            _companiesService.returnCompany(req.headers['selected-company'], req.usuario.id, true).catch(() => {});
             let response = functions.createResponse("Serviço criado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {
@@ -187,7 +189,7 @@ router.get("/services", login, validate.validateCompanyAccess, (req, res, next) 
 
 router.post("/services/:id", login, validate.validateRequest(validate.schemas.services.create), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.editService(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration).then(() => {
+        _companiesService.editService(req.headers['selected-company'], req.params.id, req.body.name, req.body.value, req.body.cost, req.body.observations, req.body.duration, req.body.requires_location, req.body.accepts_quantity, req.body.measurement_unit_id).then(() => {
             let response = functions.createResponse("Serviço atualizado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {
@@ -226,10 +228,15 @@ router.get("/preferences", login, (req, res, next) => {
 
 router.post("/preferences", login, validate.validateCompanyAccess, (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _companiesService.setPreferences(req.headers['selected-company'], req.body.preferences);
-
-        let response = functions.createResponse("Preferências atualizadas com sucesso", null, "POST", 200);
-        return res.status(200).send(response);
+        _companiesService.setPreferences(req.headers['selected-company'], req.body.preferences).then(() => {
+            
+            _companiesService.returnCompany(req.headers['selected-company'], req.usuario.id, true).catch(() => {});
+            
+            let response = functions.createResponse("Preferências atualizadas com sucesso", null, "POST", 200);
+            return res.status(200).send(response);
+        }).catch((error) => {
+            return res.status(500).send(error);
+        });
     }).catch((error) => {
         return res.status(401).send(error);
     });
@@ -281,6 +288,55 @@ router.delete("/products/:id", login, (req, res, next) => {
     }).catch((error) => {
         return res.status(401).send(error);
     });
+});
+
+router.delete("/:id", login, (req, res, next) => {
+    const company_id = req.params.id;
+    const user_id = req.usuario.id;
+
+    _companiesService.deleteCompany(user_id, company_id).then(() => {
+        let response = functions.createResponse("Empresa excluída permanentemente.", null, "DELETE", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        return res.status(400).send({ message: error });
+    });
+});
+
+router.get("/asaas_status", login, validate.validateCompanyAccess, (req, res, next) => {
+    _companiesService.checkAsaasStatus(req.headers['selected-company']).then((asaasData) => {
+        let response = functions.createResponse("Status retornado com sucesso", asaasData, "GET", 200);
+        return res.status(200).send(response);
+    }).catch((error) => {
+        console.log(error)
+        return res.status(500).send({ message: "Erro ao consultar status da conta." });
+    });
+});
+
+router.get("/admin/sync_webhooks", async (req, res) => {
+    try {
+        const wallets = await functions.executeSql(`SELECT asaas_api_key FROM asaas_wallets WHERE asaas_api_key IS NOT NULL`);
+        let sucessos = 0;
+        let erros = 0;
+        let detalhesErro = []; // Lista para guardar os motivos
+
+        for (let wallet of wallets) {
+            try {
+                await _asaasService.createWebhook(wallet.asaas_api_key);
+                sucessos++;
+            } catch (e) {
+                erros++;
+                // Pega a resposta exata de erro do Asaas
+                detalhesErro.push(e.response?.data || e.message);
+            }
+        }
+
+        return res.status(200).send({
+            mensagem: `Sincronização concluída. Sucessos: ${sucessos}, Erros: ${erros}`,
+            motivos: detalhesErro
+        });
+    } catch (error) {
+        return res.status(500).send(error);
+    }
 });
 
 module.exports = router;

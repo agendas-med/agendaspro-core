@@ -20,6 +20,7 @@ let schema = {
           'string.empty': errors.string.empty(),
           'string.pattern.base': 'O CPF deve conter exatamente 11 dígitos numéricos.',
         }),
+        email: Joi.string().email().allow('', null).optional(),
         birthday: Joi.string().min(10).max(19).required().messages({
             'string.empty': errors.string.empty(),
             'string.min': errors.string.min(10),

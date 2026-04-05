@@ -1,328 +1,307 @@
-// services/asaasService.js
-const asaasAPI = require('../config/asaas');
-const axios = require('axios'); // Precisamos do axios para a chamada ao ViaCEP
-const functions = require("../utils/functions");
+const axios = require("axios");
+
+const ASAAS_URL =
+  process.env.ASAAS_ENV === "production"
+    ? "https://api.asaas.com/v3"
+    : "https://sandbox.asaas.com/api/v3";
+
+// Helper para alternar entre a sua API Key Principal e a API Key da Subconta (Empresa)
+const getHeaders = (apiKey) => ({
+  access_token: apiKey || process.env.ASAAS_API_KEY,
+  "Content-Type": "application/json",
+});
 
 const asaasService = {
-    /**
-     * Cria uma nova Subconta no Asaas, buscando o endereço pelo CEP.
-     * @param {object} companyData - O objeto completo da empresa do seu banco de dados.
-     * @returns {Promise<object>} Objeto com o walletId e apiKey da subconta criada.
-     */
-    createSubaccount: async function (companyData) {
-        try {
-            let subContaExistente = await this.findSubaccountByEmail(companyData.email_requisitado);
+  // ---------------------------------------------------------------------------
+  // 1. CRIAÇÃO DE SUBCONTA (Chamado com sua API Key Principal)
+  // ---------------------------------------------------------------------------
+  createSubaccount: async function (companyData) {
+    try {
+      const cleanCep = companyData.cep
+        ? companyData.cep.replace(/\D/g, "")
+        : null;
+      if (!cleanCep)
+        throw new Error("CEP é obrigatório para criar a subconta.");
 
-            if (subContaExistente) return;
+      // Busca os dados do endereço no ViaCEP
+      const viaCepResponse = await axios.get(
+        `https://viacep.com.br/ws/${cleanCep}/json/`,
+      );
+      if (viaCepResponse.data.erro)
+        throw new Error("CEP inválido ou não encontrado.");
 
-            const cleanCep = companyData.cep.replace(/[^\d]/g, '');
-            if (!cleanCep) {
-                return "O CEP não foi fornecido.";
-            }
+      const addressFromCep = viaCepResponse.data;
+      const document = companyData.cnpj_cpf.replace(/\D/g, "");
 
-            const viaCepResponse = await axios.get(`https://viacep.com.br/ws/${cleanCep}/json/`);
+      const payload = {
+        name: companyData.name,
+        email: companyData.email,
+        loginEmail: companyData.email,
+        cpfCnpj: document,
+        mobilePhone: companyData.phone.replace(/\D/g, ""),
+        postalCode: cleanCep,
+        address: addressFromCep.logradouro,
+        addressNumber: companyData.address_number || "S/N",
+        complement: companyData.complement || "",
+        province: addressFromCep.bairro,
+        incomeValue: parseFloat(companyData.incomeValue),
+      };
 
-            if (viaCepResponse.data.erro) {
-                return `CEP inválido ou não encontrado: ${companyData.cep}`;
-            }
+      // Regras do Asaas para tipo de pessoa
+      if (document.length === 11) {
+        if (!companyData.birthDate)
+          throw new Error(
+            "Data de nascimento é obrigatória para pessoa física.",
+          );
+        payload.birthDate = companyData.birthDate; // Formato YYYY-MM-DD
+      } else if (document.length === 14) {
+        if (!companyData.companyType)
+          throw new Error(
+            "Tipo de empresa (MEI, LTDA, etc) é obrigatório para pessoa jurídica.",
+          );
+        payload.companyType = companyData.companyType;
+      }
 
-            const addressFromCep = viaCepResponse.data;
-            const [account, accountDigit] = companyData.conta.split('-');
-            const document = companyData.cnpj.replace(/[^\d]/g, '');
+      const response = await axios.post(`${ASAAS_URL}/accounts`, payload, {
+        headers: getHeaders(process.env.ASAAS_API_KEY), // Sempre usa a API principal aqui
+      });
 
-            const payload = {
-                name: companyData.nome,
-                email: companyData.email_requisitado,
-                cpfCnpj: document,
-                companyType: companyData.tipo_empresa,
-
-                //TODO: Tornar esses campos dinamicos
-                birthDate: "1990-10-12",
-                incomeValue: companyData.faturamento_mensal || 1000,
-
-                mobilePhone: companyData.telefone.replace(/[^\d]/g, ''),
-                phone: companyData.telefone.replace(/[^\d]/g, ''),
-                address: addressFromCep.logradouro,
-                addressNumber: String(companyData.numero || 'S/N'),
-                complement: companyData.complemento,
-                province: addressFromCep.bairro,
-                postalCode: cleanCep,
-                bankAccount: {
-                    bank: companyData.banco,
-                    accountName: companyData.nome,
-                    ownerName: companyData.nome,
-
-                    //TODO: Tornar esses campos dinamicos
-                    ownerBirthDate: "1990-10-12",
-
-                    cpfCnpj: document,
-                    agency: companyData.agencia,
-                    account: account,
-                    accountDigit: accountDigit,
-                    bankAccountType: "CONTA_CORRENTE"
-                }
-            };
-
-            console.log("Enviando dados para criar subconta no Asaas:", payload);
-
-            const response = await asaasAPI.post('/accounts', payload);
-
-            if (response.data && response.data.walletId && response.data.apiKey) {
-                return {
-                    walletId: response.data.walletId,
-                    apiKey: response.data.apiKey
-                };
-            } else {
-                return "Resposta da API Asaas não continha walletId ou apiKey.";
-            }
-
-        } catch (error) {
-            console.error("ERRO ao criar subconta no Asaas:", error.response?.data || error.message);
-            return error;
-        }
-    },
-    /**
-     * @param {string} email O e-mail a ser pesquisado.
-     * @returns {Promise<object|null>} O objeto da conta se encontrada, ou null se não existir.
-     */
-    findSubaccountByEmail: async function (email) {
-        try {
-            const response = await asaasAPI.get('/accounts', {
-                params: {
-                    email: email
-                }
-            });
-
-            if (response.data && response.data.data.length > 0) {
-                return response.data.data[0];
-            }
-
-            return null;
-
-        } catch (error) {
-            console.error("ERRO ao buscar subconta por e-mail no Asaas:", error.response?.data || error.message);
-            throw error;
-        }
-    },
-    createPixKey: async function () {
-        try {
-            const response = await asaasAPI.post('/pix/addressKeys', { type: "EVP" });
-
-            if (response.data) {
-                return response.data;
-            }
-
-            return null;
-        } catch (error) {
-            console.error("ERRO ao criar uma chave pix no Asaas:", error.response?.data || error.message);
-            throw error;
-        }
-    },
-    /**
-     * Cria uma cobrança Pix com Split de Pagamento configurado.
-     * @param {Object} data - Dados da cobrança.
-     * @param {string} data.customerId - ID do cliente Asaas (cus_xxxx).
-     * @param {number} data.value - Valor total da cobrança.
-     * @param {string} data.sellerAccountId - walletId da Subconta Vendedora (98%).
-     * @param {string} data.linkedAccountId - walletId da Subconta Vinculada (1%).
-     * @param {string} data.mainAccountId - walletId da SUA conta principal (1%).
-     * @param {string} data.description - Descrição da cobrança.
-     */
-    createPixPaymentWithSplit: async function (data) {
-        try {
-            if (data.value <= 0) {
-                throw new Error("O valor da cobrança deve ser maior que zero.");
-            }
-
-            // Definindo a data de vencimento para hoje se não for fornecida
-            const dueDate = new Date().toISOString().slice(0, 10);
-
-            // Configuração do Split: 98%, 1%, 1%
-            const splitConfig = [
-                {
-                    walletId: data.sellerAccountId, // Empresa Vendedora (Subconta 1)
-                    fixedValue: 0, // Não usa valor fixo
-                    percentualValue: 98 // Recebe 98% do valor líquido
-                },
-                {
-                    walletId: data.linkedAccountId, // Empresa Vinculada (Subconta 2)
-                    fixedValue: 0,
-                    percentualValue: 1 // Recebe 1% do valor líquido
-                }
-            ];
-
-            const payload = {
-                customer: data.customerId,
-                billingType: "PIX",
-                value: data.value,
-                dueDate: dueDate,
-                description: data.description || "Pagamento com Split",
-                split: splitConfig
-            };
-
-            const response = await asaasAPI.post('/payments', payload);
-
-            if (response.data && response.data.id) {
-                return response.data;
-            } else {
-                return "Cobrança criada, mas resposta da API incompleta.";
-            }
-
-        } catch (error) {
-            console.error(
-                "ERRO ao criar cobrança Pix com Split:",
-                error.response?.data?.errors || error.response?.data || error.message
-            );
-            throw error;
-        }
-    },
-    /**
-     * Insere os dados de uma cobrança Pix na tabela 'pagamentos_asaas' do seu BD.
-     * @param {Object} paymentData - O objeto de pagamento retornado pela API Asaas.
-     * @param {number} vendaId - O ID da venda no seu sistema.
-     */
-    insertAsaasPayment: function (paymentData, vendaId) {
-        return new Promise((resolve, reject) => {
-            // Garantindo que todos os dados essenciais estão presentes
-            if (!paymentData || !paymentData.id || !paymentData.customer || !vendaId) {
-                return reject(new Error("Dados incompletos para registro no BD."));
-            }
-
-            // Você deve ajustar as colunas conforme a sua tabela pagamentos_asaas
-            functions.executeSql(
-                `
-                INSERT INTO
-                    pagamentos_asaas
-                    (
-                        id_venda,
-                        asaas_payment_id,
-                        asaas_customer_id,
-                        valor,
-                        status_cobranca,
-                        data_vencimento
-                    )
-                VALUES
-                    (?, ?, ?, ?, ?, ?)
-            `,
-                [
-                    vendaId,                                    // id_venda
-                    paymentData.id,                             // asaas_payment_id (pay_xxxxxx)
-                    paymentData.customer,                       // asaas_customer_id (cus_xxxxxx)
-                    paymentData.value,                          // valor
-                    'PENDENTE',                                 // status_cobranca inicial
-                    paymentData.dueDate                         // data_vencimento
-                ]
-            )
-                .then((results) => {
-                    console.log(`Pagamento Asaas ${paymentData.id} registrado no BD.`);
-                    resolve(results.insertId);
-                })
-                .catch((error) => {
-                    // Rejeitar se o registro falhar (ex: chave única duplicada)
-                    reject(error);
-                });
-        });
-    },
-    /**
-     * Busca o QR Code (Base64) e o código Pix Copia e Cola.
-     * @param {string} paymentId - ID da cobrança (payment_id) retornado.
-     */
-    getPixQrCode: async function (paymentId) {
-        try {
-            if (!paymentId) throw new Error("ID de pagamento não fornecido.");
-
-            const response = await asaasAPI.get(`/payments/${paymentId}/pixQrCode`);
-
-            if (response.data && response.data.encodedImage && response.data.payload) {
-                return {
-                    pix_img: response.data.encodedImage, 
-                    pix_key: response.data.payload                       
-                };
-            } else {
-                throw new Error("Erro ao obter dados do QR Code.");
-            }
-        } catch (error) {
-            console.error("ERRO ao buscar QR Code:", error.message);
-            throw error;
-        }
-    },
-    /**
-     * Busca um cliente Asaas pelo CPF/CNPJ ou E-mail.
-     * Utiliza o endpoint /customers com o parâmetro 'query'.
-     * @param {string} identifier - CPF/CNPJ ou E-mail do cliente final.
-     * @returns {Promise<Object | null>} - O objeto cliente Asaas ou null se não for encontrado.
-     */
-    findCustomer: async function (identifier) {
-        try {
-            // GET para /customers com o identificador como parâmetro de query
-            const response = await asaasAPI.get('/customers', {
-                params: {
-                    // O Asaas utiliza 'query' para buscar por email
-                    email: identifier // Tenta buscar pelo email
-                }
-            });
-
-            // O endpoint retorna um objeto com 'data' sendo um array de clientes
-            if (response.data && response.data.data.length > 0) {
-                // Retorna o primeiro cliente encontrado
-                return response.data.data[0];
-            }
-
-            return null; // Cliente não encontrado
-
-        } catch (error) {
-            console.error(
-                "ERRO ao buscar cliente no Asaas:",
-                error.response?.data?.errors || error.response?.data || error.message
-            );
-            // É importante lançar o erro para que a função chamadora saiba da falha
-            throw error;
-        }
-    },
-
-    /**
-     * Cria um novo cliente Asaas.
-     * @param {Object} clientData - Dados do cliente.
-     * @param {string} clientData.name - Nome completo do cliente.
-     * @param {string} clientData.email - E-mail do cliente.
-     * @param {string} clientData.cpfCnpj - CPF ou CNPJ.
-     * @param {string} clientData.phone - Telefone (somente dígitos).
-     * @returns {Promise<Object>} - O objeto cliente Asaas criado.
-     */
-    createCustomer: async function (clientData) {
-        try {
-            // Remove caracteres especiais dos documentos
-            const cpfCnpj = clientData.cpfCnpj.replace(/[^\d]/g, '');
-            const phone = clientData.phone.replace(/[^\d]/g, '');
-
-            const payload = {
-                name: clientData.name,
-                email: clientData.email,
-                cpfCnpj: cpfCnpj,
-                mobilePhone: phone,
-                // Outros campos opcionais podem ser adicionados aqui (ex: address, postalCode)
-            };
-
-            console.log("Enviando dados para criar cliente no Asaas:", payload);
-
-            // POST para o endpoint /customers
-            const response = await asaasAPI.post('/customers', payload);
-
-            if (response.data && response.data.id) {
-                console.log("Cliente Asaas criado com ID:", response.data.id);
-                return response.data;
-            } else {
-                throw new Error("Resposta da API Asaas não continha o ID do cliente.");
-            }
-
-        } catch (error) {
-            console.error(
-                "ERRO ao criar cliente no Asaas:",
-                error.response?.data?.errors || error.response?.data || error.message
-            );
-            throw error;
-        }
+      // Retorna a Wallet e a API Key exclusivas dessa empresa
+      return {
+        walletId: response.data.walletId,
+        apiKey: response.data.apiKey,
+      };
+    } catch (error) {
+      console.error(
+        "[Asaas Error - Create Subaccount]:",
+        error.response?.data || error.message,
+      );
+      throw error;
     }
+  },
+
+  // ---------------------------------------------------------------------------
+  // 2. CRIAÇÃO DE CLIENTE (Chamado com a API Key da Subconta)
+  // ---------------------------------------------------------------------------
+  getOrCreateCustomer: async function (clientData, subaccountApiKey) {
+    try {
+      const cleanCpf = clientData.cpf
+        ? clientData.cpf.replace(/\D/g, "")
+        : null;
+      const cleanPhone = clientData.tel
+        ? clientData.tel.replace(/\D/g, "")
+        : null;
+
+      // Busca se o cliente já existe na subconta
+      if (cleanCpf) {
+        const search = await axios.get(
+          `${ASAAS_URL}/customers?cpfCnpj=${cleanCpf}`,
+          {
+            headers: getHeaders(subaccountApiKey),
+          },
+        );
+        if (search.data.data.length > 0) {
+          return search.data.data[0].id;
+        }
+      }
+
+      const payload = {
+        name: clientData.name || "Cliente AgendasPRO",
+        cpfCnpj: cleanCpf || undefined,
+        email: clientData.email || undefined,
+        mobilePhone: cleanPhone || undefined,
+      };
+
+      const response = await axios.post(`${ASAAS_URL}/customers`, payload, {
+        headers: getHeaders(subaccountApiKey),
+      });
+
+      return response.data.id;
+    } catch (error) {
+      console.error(
+        "[Asaas Error - Get/Create Customer]:",
+        error.response?.data || error.message,
+      );
+      throw error;
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // 3. PIX FRENTE DE CAIXA COM SPLIT DE 5% (Chamado com a API Key da Subconta)
+  // ---------------------------------------------------------------------------
+  createPixCharge: async function (args, subaccountApiKey) {
+    try {
+      if (args.value < 5) {
+        throw new Error(
+          "O valor mínimo para gerar um Pix no Asaas é de R$ 5,00.",
+        );
+      }
+
+      // 1. Gera a data de hoje no formato YYYY-MM-DD exigido pelo Asaas
+      const today = new Date().toISOString().split("T")[0];
+
+      // 2. Monta o payload garantindo os tipos de dados corretos
+      const payload = {
+        customer: args.customerAsaasId,
+        billingType: "PIX",
+        value: parseFloat(args.value), // Garante que seja um número (Float)
+        dueDate: today, // OBRIGATÓRIO: Mesmo sendo imediato, exige vencimento
+        description: args.description,
+        externalReference: args.externalReference,
+      };
+
+      // 3. RASTREIO: Imprime no terminal o que está a ser enviado para o Asaas
+      console.log(
+        "[Asaas Rastreio - Payload Pix]:",
+        JSON.stringify(payload, null, 2),
+      );
+
+      const response = await axios.post(`${ASAAS_URL}/payments`, payload, {
+        headers: getHeaders(subaccountApiKey),
+      });
+
+      const qrCodeResponse = await axios.get(
+        `${ASAAS_URL}/payments/${response.data.id}/pixQrCode`,
+        { headers: getHeaders(subaccountApiKey) },
+      );
+
+      if (!qrCodeResponse.data.encodedImage || !qrCodeResponse.data.payload) {
+        throw new Error(
+          "O QR Code não foi gerado. A conta do Asaas pode estar restrita ou em análise.",
+        );
+      }
+
+      return {
+        paymentId: response.data.id,
+        payload: qrCodeResponse.data.payload,
+        expirationDate: qrCodeResponse.data.expirationDate,
+      };
+    } catch (error) {
+      console.error(
+        "[Asaas Error - Create Pix]:",
+        error.response?.data || error.message,
+      );
+      throw error;
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // 4. LINK DE PAGAMENTO WHATSAPP COM SPLIT DE 5% (Chamado com API Key Subconta)
+  // ---------------------------------------------------------------------------
+  createPaymentLink: async function (args, subaccountApiKey) {
+    try {
+      const payload = {
+        customer: args.customerAsaasId,
+        billingType: "UNDEFINED",
+        value: args.value,
+        dueDate: new Date(new Date().getTime() + 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split("T")[0],
+        externalReference: args.externalReference,
+        description: args.description,
+        split: [
+          {
+            walletId: process.env.ASAAS_MAIN_WALLET_ID,
+            percentualValue: 5,
+          },
+        ],
+      };
+
+      const response = await axios.post(`${ASAAS_URL}/payments`, payload, {
+        headers: getHeaders(subaccountApiKey),
+      });
+
+      return {
+        paymentId: response.data.id,
+        url: response.data.invoiceUrl,
+      };
+    } catch (error) {
+      console.error(
+        "[Asaas Error - Create Payment Link]:",
+        error.response?.data || error.message,
+      );
+      throw error;
+    }
+  },
+  // ---------------------------------------------------------------------------
+  // 5. STATUS DA CONTA E ONBOARDING (Chamado com API Key Subconta)
+  // ---------------------------------------------------------------------------
+  getAccountStatus: async function (subaccountApiKey) {
+    try {
+      const statusResponse = await axios.get(`${ASAAS_URL}/myAccount/status`, {
+        headers: getHeaders(subaccountApiKey),
+      });
+
+      const status = statusResponse.data.general;
+      let onboardingUrl = "https://www.asaas.com/login";
+
+      if (status !== "APPROVED") {
+        const docsResponse = await axios.get(
+          `${ASAAS_URL}/myAccount/documents`,
+          {
+            headers: getHeaders(subaccountApiKey),
+          },
+        );
+
+        console.log(docsResponse.data.data);
+
+        const pendingDocs = docsResponse.data.data || [];
+        const docWithLink = pendingDocs.find((doc) => doc.onboardingUrl);
+
+        if (docWithLink) {
+          onboardingUrl = docWithLink.onboardingUrl;
+        }
+      }
+
+      return {
+        status: status,
+        onboardingUrl: onboardingUrl,
+      };
+    } catch (error) {
+      console.error(
+        "[Asaas Error - Get Status]:",
+        error.response?.data || error.message,
+      );
+      throw error;
+    }
+  },
+  // ---------------------------------------------------------------------------
+  // 6. CONFIGURAÇÃO DE WEBHOOK (Chamado com API Key Subconta)
+  // ---------------------------------------------------------------------------
+  createWebhook: async function (subaccountApiKey) {
+    try {
+      const webhookUrl = process.env.WEBHOOK_URL;
+
+      if (!webhookUrl) {
+        console.log(
+          "[Asaas] Aviso: WEBHOOK_URL não definida. Ignorando criação do Webhook.",
+        );
+        return null;
+      }
+
+      const payload = {
+        name: "Webhook AgendasPRO", 
+        url: webhookUrl,
+        email: process.env.USER_EMAIL || "sistema.agendaspro@gmail.com",
+        sendType: "NON_SEQUENTIALLY", 
+        events: ["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"],
+        enabled: true,
+        interrupted: false
+      };
+
+      const response = await axios.post(`${ASAAS_URL}/webhooks`, payload, {
+        headers: getHeaders(subaccountApiKey),
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error(
+        "[Asaas Error - Create Webhook]:",
+        error.response?.data || error.message,
+      );
+      throw error;
+    }
+  },
 };
 
 module.exports = asaasService;

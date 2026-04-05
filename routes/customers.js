@@ -8,7 +8,7 @@ const validate = require("../middleware/validate");
 
 router.post("/", login, validate.validateRequest(validate.schemas.customers.createCustomer), (req, res, next) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _customersService.create(req.headers['selected-company'], req.body.name, req.body.cpf, req.body.birthday, req.body.tel, req.body.image).then(() => {
+        _customersService.create(req.headers['selected-company'], req.body.name, req.body.cpf, req.body.birthday, req.body.tel, req.body.image, req.body.email).then(() => {
             let response = functions.createResponse("Cliente cadastrado com sucesso", null, "POST", 200);
             return res.status(200).send(response);
         }).catch((error) => {
@@ -30,7 +30,7 @@ router.delete("/:customer_id", login, (req, res) => {
 
 router.patch("/:customer_id", login, validate.validateRequest(validate.schemas.customers.createCustomer), (req, res) => {
     _companiesService.checkCompanyPermission(req.usuario.id, req.headers['selected-company']).then(() => {
-        _customersService.update(req.headers['selected-company'], req.params.customer_id, req.body.name, req.body.cpf, req.body.birthday, req.body.tel, req.body.image).then(() => {
+        _customersService.update(req.headers['selected-company'], req.params.customer_id, req.body.name, req.body.cpf, req.body.birthday, req.body.tel, req.body.image, req.body.email).then(() => {
             let response = functions.createResponse("Cliente atualizado com sucesso", null, "PATCH", 200);
             return res.status(200).send(response);
         }).catch((error) => res.status(500).send(error));

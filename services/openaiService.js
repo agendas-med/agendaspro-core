@@ -3,10 +3,21 @@ const functions = require("../utils/functions");
 const _appointmentsService = require("./appointmentsService");
 const _asaasService = require("./asaasService");
 const moment = require("moment");
+const axios = require("axios");
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+const UNIT_QUESTIONS = {
+  unidade: "Para quantas unidades seria o agendamento?",
+  pessoa: "Para quantas pessoas seria?",
+  peca: "Quantas peças seriam no total?",
+  hora: "Para quantas horas de serviço?",
+  sessao: "Quantas sessões você gostaria de agendar?",
+  m2: "Qual é a metragem total (em metros quadrados)?",
+  km: "Qual é a distância total em quilômetros?",
+};
 
 let openaiService = {
   processWhatsAppMessage: async function (phone, userMessage) {
@@ -84,10 +95,7 @@ let openaiService = {
 
         if (availableServices.length === 1) {
           collectedData.selected_service = availableServices[0];
-          await this.updateSessionStage(session.id, "ask_date", collectedData);
-          return {
-            reply: `Encontrei o serviço *${availableServices[0].name}* em *${availableServices[0].company_name}* (${availableServices[0].city}).\n\nPara qual data você deseja? (Ex: amanhã, 20/05)`,
-          };
+          return await this.handleServiceRouting(session, collectedData);
         }
 
         collectedData.temp_services = availableServices;
@@ -107,18 +115,190 @@ let openaiService = {
       case "select_service":
         const srvIdx = parseInt(msgClean) - 1;
         if (isNaN(srvIdx) || !collectedData.temp_services[srvIdx]) {
-          return {
-            reply: "Por favor, escolha um número válido da lista acima.",
-          };
+          await this.updateSessionStage(
+            session.id,
+            "ask_service_details",
+            collectedData,
+          );
+          return await this.processWhatsAppMessage(phone, msgClean);
         }
 
         collectedData.selected_service = collectedData.temp_services[srvIdx];
         delete collectedData.temp_services;
+
+        return await this.handleServiceRouting(session, collectedData);
+
+      case "ask_quantity":
+        const qtyInfo = await this.extractData(msgClean, "quantity_data");
+        const extractedQuantity = qtyInfo.quantity || 1;
+
+        collectedData.quantity = extractedQuantity;
+        collectedData.selected_service.quantity = extractedQuantity;
+
+        return await this.handleServiceRouting(session, collectedData);
+
+      case "ask_service_location":
+        const newLocInfo = await this.extractData(msgClean, "location_data");
+
+        if (!collectedData.addressData) {
+          collectedData.addressData = {};
+        }
+
+        if (newLocInfo.zip_code)
+          collectedData.addressData.zip_code = newLocInfo.zip_code;
+        if (newLocInfo.address)
+          collectedData.addressData.address = newLocInfo.address;
+        if (newLocInfo.number)
+          collectedData.addressData.number = newLocInfo.number;
+        if (newLocInfo.complement)
+          collectedData.addressData.complement = newLocInfo.complement;
+        if (newLocInfo.city) collectedData.addressData.city = newLocInfo.city;
+        if (newLocInfo.state)
+          collectedData.addressData.state = newLocInfo.state;
+
+        const currentLoc = collectedData.addressData;
+
+        if (currentLoc.zip_code && !currentLoc.address) {
+          try {
+            const cleanCep = currentLoc.zip_code.replace(/\D/g, "");
+
+            if (cleanCep.length === 8) {
+              const cepResponse = await axios.get(
+                `https://viacep.com.br/ws/${cleanCep}/json/`,
+              );
+              const cepData = cepResponse.data;
+
+              if (!cepData.erro) {
+                currentLoc.address = currentLoc.address || cepData.logradouro;
+                currentLoc.city = currentLoc.city || cepData.localidade;
+                currentLoc.state = currentLoc.state || cepData.uf;
+                currentLoc.neighborhood =
+                  currentLoc.neighborhood || cepData.bairro;
+              }
+            }
+          } catch (error) {
+            console.error("[ViaCEP Error]: Falha ao buscar CEP", error);
+          }
+        }
+
+        if (!currentLoc.number) {
+          await this.updateSessionStage(
+            session.id,
+            "ask_service_location",
+            collectedData,
+          );
+          return {
+            reply:
+              "Preciso que me informe o *Número* do local para enviar o profissional (ou responda 'sem número' se for o caso).",
+          };
+        }
+
+        if (!currentLoc.address && !currentLoc.zip_code) {
+          await this.updateSessionStage(
+            session.id,
+            "ask_service_location",
+            collectedData,
+          );
+          return {
+            reply:
+              "Por favor, me informe o *CEP* ou o *Nome da Rua* para que eu possa localizar o endereço.",
+          };
+        }
+
+        if (!currentLoc.address) {
+          await this.updateSessionStage(
+            session.id,
+            "ask_service_location",
+            collectedData,
+          );
+          return {
+            reply:
+              "Não consegui encontrar sua rua através do CEP informado. Pode me dizer o *Nome da Rua e o Número*?",
+          };
+        }
+
         await this.updateSessionStage(session.id, "ask_date", collectedData);
-        return { reply: "Ótimo! Para qual data você deseja agendar? 📅" };
+
+        return {
+          reply:
+            "Endereço anotado! 🗺️\n\nAgora, para qual data você deseja agendar? (Ex: amanhã, 20/05)",
+        };
 
       case "ask_date":
         const dateInfo = await this.extractData(msgClean, "date");
+
+        if (dateInfo.change_service && dateInfo.new_service) {
+          collectedData.last_queries = dateInfo.new_service;
+          await this.updateSessionStage(
+            session.id,
+            "ask_service_details",
+            collectedData,
+          );
+          return await this.processWhatsAppMessage(
+            phone,
+            dateInfo.new_service.join(" "),
+          );
+        }
+
+        if (dateInfo.next_available) {
+          let daysChecked = 0;
+          let foundDays = [];
+
+          let searchDate = dateInfo.date
+            ? moment(dateInfo.date, "YYYY-MM-DD")
+            : moment();
+
+          if (searchDate.isBefore(moment(), "day")) {
+            searchDate = moment();
+          }
+
+          while (daysChecked < 15 && foundDays.length < 3) {
+            let checkStr = searchDate.format("YYYY-MM-DD");
+            let avail = await this.calculateFreeSlots(
+              collectedData.selected_service.company_id,
+              checkStr,
+              collectedData.selected_service.duration,
+            );
+
+            if (avail.slots.length > 0) {
+              foundDays.push({
+                date: checkStr,
+                slots: avail.slots.slice(0, 7),
+              });
+            }
+            searchDate.add(1, "days");
+            daysChecked++;
+          }
+
+          if (foundDays.length === 0) {
+            return {
+              reply:
+                "Infelizmente, não encontrei nenhum horário disponível nas próximas semanas para o período solicitado. 😕",
+            };
+          }
+
+          let openReply =
+            "Temos estes dias e horários mais próximos disponíveis:\n\n";
+          const diasNomes = [
+            "Domingo",
+            "Segunda",
+            "Terça",
+            "Quarta",
+            "Quinta",
+            "Sexta",
+            "Sábado",
+          ];
+
+          foundDays.forEach((fd) => {
+            const nomeDiaSemana = diasNomes[moment(fd.date).day()];
+            openReply += `*${moment(fd.date).format("DD/MM")} (${nomeDiaSemana})*: ${fd.slots.join(" | ")}\n`;
+          });
+
+          openReply +=
+            "\nQual dia e horário você prefere? (Ex: segunda às 10h)";
+          return { reply: openReply };
+        }
+
         let targetDate = dateInfo.date;
 
         if (!targetDate && dateInfo.time) {
@@ -129,6 +309,16 @@ let openaiService = {
           return {
             reply:
               "Não entendi a data. Pode me dizer de outra forma? (Ex: dia 15/08, amanhã às 14h)",
+          };
+        }
+
+        if (
+          targetDate &&
+          moment(targetDate).isBefore(moment().format("YYYY-MM-DD"))
+        ) {
+          return {
+            reply:
+              "Não é possível agendar para uma data que já passou. 😅 Por favor, escolha uma data de hoje em diante.",
           };
         }
 
@@ -165,7 +355,7 @@ let openaiService = {
             };
           } else {
             return {
-              reply: `Excelente! O horário das ${collectedData.time} está disponível e já reservei para você.\n\nPara eu finalizar no sistema, por favor, me informe na mesma mensagem o seu *Nome Completo*, *Data de Nascimento* e *CPF*.`,
+              reply: `Excelente! O horário das ${collectedData.time} está disponível e já reservei para você.\n\nPara eu finalizar no sistema, por favor, me informe na mesma mensagem o seu *Nome Completo*, *Data de Nascimento*, *CPF* e *E-mail*.`,
             };
           }
         }
@@ -182,12 +372,33 @@ let openaiService = {
       case "select_time":
         const timeInfo = await this.extractData(msgClean, "time");
 
-        if (
-          !timeInfo.time ||
-          !collectedData.temp_slots.includes(timeInfo.time)
-        ) {
+        if (timeInfo.change_service && timeInfo.new_service) {
+          collectedData.last_queries = timeInfo.new_service;
+          await this.updateSessionStage(
+            session.id,
+            "ask_service_details",
+            collectedData,
+          );
+          return await this.processWhatsAppMessage(
+            phone,
+            timeInfo.new_service.join(" "),
+          );
+        }
+
+        if (timeInfo.date) {
+          await this.updateSessionStage(session.id, "ask_date", collectedData);
+          return await this.processWhatsAppMessage(phone, msgClean);
+        }
+
+        if (!timeInfo.time) {
           return {
-            reply: `Por favor, escolha um dos horários exatos da lista: ${collectedData.temp_slots.join(", ")}`,
+            reply: `Não consegui identificar o horário desejado. Por favor, escolha um desta lista:\n*${collectedData.temp_slots.join(" | ")}*\n\n(Ou se preferir, me diga outro dia da semana!)`,
+          };
+        }
+
+        if (!collectedData.temp_slots.includes(timeInfo.time)) {
+          return {
+            reply: `Poxa, às ${timeInfo.time} nós não temos disponibilidade neste dia. 😕\n\nNossos horários livres são:\n*${collectedData.temp_slots.join(" | ")}*\n\nAlgum desses fica bom para você?`,
           };
         }
 
@@ -211,53 +422,133 @@ let openaiService = {
           };
         } else {
           return {
-            reply: `Horário das ${collectedData.time} reservado! Para finalizar o agendamento no sistema, por favor, me informe na mesma mensagem o seu *Nome Completo*, *Data de Nascimento* e *CPF*.`,
+            reply: `Horário das ${collectedData.time} reservado! Para finalizar o agendamento no sistema, por favor, me informe na mesma mensagem o seu *Nome Completo*, *Data de Nascimento*, *CPF* e *E-mail*.`,
           };
         }
 
       case "ask_customer_data":
-        const customerInfo = await this.extractData(msgClean, "customer_data");
+        const srv = collectedData.selected_service;
+        const newCustomerInfo = await this.extractData(
+          msgClean,
+          "customer_data",
+        );
 
-        if (!customerInfo.name || !customerInfo.cpf || !customerInfo.birthday) {
-          return {
-            reply:
-              "Preciso do seu Nome Completo, Data de Nascimento e CPF para registrar no sistema. Pode me enviar?",
-          };
+        if (!collectedData.customerInfo) {
+          collectedData.customerInfo = {};
         }
 
-        const srv = collectedData.selected_service;
+        if (newCustomerInfo.name && newCustomerInfo.name.length > 2) {
+          collectedData.customerInfo.name = newCustomerInfo.name;
+        }
+        if (newCustomerInfo.cpf) {
+          collectedData.customerInfo.cpf = newCustomerInfo.cpf;
+        }
+        if (newCustomerInfo.email && newCustomerInfo.email.includes("@")) {
+          collectedData.customerInfo.email = newCustomerInfo.email;
+        }
+        if (newCustomerInfo.birthday) {
+          collectedData.customerInfo.birthday = newCustomerInfo.birthday;
+        }
+
+        let missingFields = [];
+        let invalidFields = [];
+
+        if (!collectedData.customerInfo.name)
+          missingFields.push("Nome Completo");
+
+        if (!collectedData.customerInfo.cpf) {
+          missingFields.push("CPF");
+        } else {
+          const cleanCpf = collectedData.customerInfo.cpf.replace(/\D/g, "");
+          if (cleanCpf.length !== 11) {
+            invalidFields.push("CPF (inválido)");
+            collectedData.customerInfo.cpf = null;
+          }
+        }
+
+        if (!collectedData.customerInfo.email) {
+          missingFields.push("E-mail");
+        } else {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(collectedData.customerInfo.email)) {
+            invalidFields.push("E-mail (formato inválido)");
+            collectedData.customerInfo.email = null;
+          }
+        }
+
+        if (!collectedData.customerInfo.birthday) {
+          missingFields.push("Data de Nascimento");
+        } else {
+          if (
+            !moment(
+              collectedData.customerInfo.birthday,
+              "YYYY-MM-DD",
+              true,
+            ).isValid()
+          ) {
+            invalidFields.push("Data de Nascimento (formato inválido)");
+            collectedData.customerInfo.birthday = null;
+          }
+        }
+
+        if (missingFields.length > 0 || invalidFields.length > 0) {
+          await this.updateSessionStage(
+            session.id,
+            "ask_customer_data",
+            collectedData,
+          );
+
+          let replyMsg = "Quase lá! ";
+          if (invalidFields.length > 0) {
+            replyMsg += `Notei que as seguintes informações estão em formato incorreto: *${invalidFields.join(", ")}*. `;
+          }
+          if (missingFields.length > 0) {
+            replyMsg += `Também faltou me informar: *${missingFields.join(", ")}*. `;
+          }
+
+          replyMsg += `\n\nPode me enviar os dados corretos para eu concluir a sua reserva?`;
+          return { reply: replyMsg };
+        }
+
         const bookingResult = await this.processBooking(phone, {
           company_id: srv.company_id,
-          customer_name: customerInfo.name,
-          customer_birthday: customerInfo.birthday,
-          customer_cpf: customerInfo.cpf,
+          customer_name: collectedData.customerInfo.name,
+          customer_birthday: collectedData.customerInfo.birthday,
+          customer_cpf: collectedData.customerInfo.cpf,
+          customer_email: collectedData.customerInfo.email,
           date: `${collectedData.date} ${collectedData.time}:00`,
           duration: srv.duration,
-          total_value: srv.value,
           services: [
             {
               id: srv.id,
               name: srv.name,
               value: srv.value,
               duration: srv.duration,
+              quantity: collectedData.quantity || 1,
             },
           ],
+          addressData: collectedData.addressData || null,
         });
+
+        if (
+          bookingResult.startsWith("Ocorreu um erro") ||
+          bookingResult.includes("Infelizmente")
+        ) {
+          return { reply: bookingResult };
+        }
 
         await this.closeSession(session.id);
 
-        if (bookingResult.includes("PAGAMENTO_PENDENTE")) {
-          const url = bookingResult.split("|")[1];
+        if (bookingResult.includes("PAGAMENTO_PENDENTE|")) {
+          const urlPagamento = bookingResult.split("|")[1];
           return {
-            reply: `Tudo certo, ${customerInfo.name}! 🎉\n\nSeu agendamento exige pagamento antecipado. Acesse o link abaixo para concluir:\n${url}\n\nLembre-se de chegar com 15 minutos de antecedência no local.`,
+            reply: `Tudo certo, ${collectedData.customerInfo.name.split(" ")[0]}! 🎉\n\nPara confirmar a sua reserva e garantir o horário, realize o pagamento do sinal de confirmação acessando o link abaixo:\n\n🔗 ${urlPagamento}\n\nAssim que o pagamento for identificado, seu agendamento estará 100% confirmado!`,
           };
-        } else if (bookingResult.includes("SUCESSO")) {
-          return {
-            reply: `Tudo certo, ${customerInfo.name}! 🎉 Seu agendamento para o dia ${moment(collectedData.date).format("DD/MM")} às ${collectedData.time} foi confirmado.\n\nPor favor, compareça com 15 minutos de antecedência.`,
-          };
-        } else {
-          return { reply: bookingResult };
         }
+
+        return {
+          reply: `Prontinho, ${collectedData.customerInfo.name.split(" ")[0]}! Seu agendamento foi concluído com sucesso. 🎉\n\nTe esperamos no dia e horário combinados!\n\n*Lembre-se de chegar ao local com 15 minutos de antecedência.*`,
+        };
 
       // FLUXO DE REAGENDAMENTO
       case "reschedule_collect":
@@ -331,6 +622,16 @@ let openaiService = {
           return {
             reply:
               "Não entendi a data. Pode me informar no formato dia/mês ou dizer amanhã/sexta?",
+          };
+        }
+
+        if (
+          targetNewDate &&
+          moment(targetNewDate).isBefore(moment().format("YYYY-MM-DD"))
+        ) {
+          return {
+            reply:
+              "Não é possível agendar para uma data que já passou. 😅 Por favor, escolha uma data de hoje em diante.",
           };
         }
 
@@ -472,6 +773,35 @@ let openaiService = {
     }
   },
 
+  handleServiceRouting: async function (session, collectedData) {
+    const srv = collectedData.selected_service;
+
+    if (srv.accepts_quantity && !collectedData.quantity) {
+      await this.updateSessionStage(session.id, "ask_quantity", collectedData);
+      const question =
+        UNIT_QUESTIONS[srv.measurement_unit] || UNIT_QUESTIONS["unidade"];
+      return {
+        reply: `Ótimo! O serviço *${srv.name}* possui cobrança variável.\n\n${question}`,
+      };
+    }
+
+    if (srv.requires_location && !collectedData.addressData) {
+      await this.updateSessionStage(
+        session.id,
+        "ask_service_location",
+        collectedData,
+      );
+      return {
+        reply: `Serviço *${srv.name}* selecionado!\n\n📍 *Atenção:* Este serviço é realizado em domicílio!\nPor favor, me informe o endereço completo: *Rua, Número, CEP e Complemento*.`,
+      };
+    }
+
+    await this.updateSessionStage(session.id, "ask_date", collectedData);
+    return {
+      reply: `Serviço *${srv.name}* selecionado!\n\nPara qual data você deseja agendar? (Ex: amanhã, 20/05)`,
+    };
+  },
+
   // ------------------------------------------------------------------------
   // MOTOR NLU E AUXILIARES DE ESTADO
   // ------------------------------------------------------------------------
@@ -492,16 +822,29 @@ let openaiService = {
     let prompt = `Output: JSON estrito. Hoje: ${hojeNome}, ${dateNow}. `;
 
     if (contextType === "service_search") {
-      prompt += `Ação: Extraia o serviço desejado.
+      prompt += `Ação: Extraia o serviço e a quantidade (se mencionada).
             Retorne: 
             - "queries" (array de strings): Palavras-chave isoladas do serviço (Ex: 'Corte masculino' -> ['corte', 'masculino']).
-            - "city" (string|null): Cidade mencionada.`;
+            - "city" (string|null): Cidade mencionada.
+            - "quantity": number|1`;
+    } else if (contextType === "quantity") {
+      prompt += `Ação: Extraia a quantidade desejada.
+            Retorne:
+            - "quantity" (number|null): O número extraído.`;
     } else if (contextType === "date") {
-      prompt += `Ação: Extraia a data e hora alvo. 
-            Regras: Converta dias relativos (amanhã, domingo) em data exata. Se pedir um dia que já passou, use o da PRÓXIMA semana. IMPORTANTE: Se o usuário informar APENAS um horário (ex: "para as 16", "às 15h") e não mencionar palavras como "hoje", "amanhã" ou um dia específico, retorne "date": null e extraia apenas o "time".
+      prompt += `Ação: Extraia a data/hora, detecte mudança de serviço e detecte busca aberta de horários.
+            Regras: Converta termos relativos (amanhã, segunda, domingo) em data exata. 
+            // NOVA REGRA ADICIONADA ABAIXO:
+            IMPORTANTE: SEMPRE assuma datas no futuro. Se hoje é Sábado e o cliente pedir "Domingo", a data é o próximo domingo, nunca no passado.
+            Se informar APENAS horário, retorne "date": null e extraia o "time".
+            MUDANÇA DE SERVIÇO: Se pedir um serviço diferente, defina "change_service": true.
+            BUSCA ABERTA (Períodos ou Próximos): Se o usuário fizer uma busca ampla (ex: "pra quando tem?", "semana que vem", "mês que vem", "a partir do dia X"), defina "next_available": true e defina "date" como a data de início dessa busca (ex: próxima segunda, dia 1 do próximo mês). Se for apenas "pra quando tem?", "date" pode ser null.
             Retorne:
             - "date" (string|null): Formato YYYY-MM-DD.
-            - "time" (string|null): Formato HH:mm (ex: "às 14", "de tarde").`;
+            - "time" (string|null): Formato HH:mm.
+            - "change_service" (boolean)
+            - "new_service" (array de strings|null)
+            - "next_available" (boolean)`;
     } else if (contextType === "time") {
       prompt += `Ação: Extraia o horário.
             Retorne:
@@ -511,7 +854,21 @@ let openaiService = {
             Retorne:
             - "name" (string): Nome completo.
             - "cpf" (string): Apenas números.
-            - "birthday" (string|null): Formato YYYY-MM-DD.`;
+            - "birthday" (string|null): Formato YYYY-MM-DD.
+            - "email" (string|null): Endereço de e-mail.`;
+    } else if (contextType === "location_data") {
+      prompt += `Ação: Extraia dados de endereço de atendimento a domicílio.
+            Retorne:
+            - "zip_code" (string|null): CEP se informado (apenas números).
+            - "address" (string|null): Nome da rua/avenida.
+            - "number" (string|null): Número do local/imóvel (extraia sempre, se existir).
+            - "complement" (string|null): Complemento (apto, bloco, casa 2).
+            - "city" (string|null): Cidade.
+            - "state" (string|null): Estado (Sigla UF).`;
+    } else if (contextType === "quantity_data") {
+      prompt += `Ação: Extraia a quantidade informada pelo cliente para o serviço.
+            Retorne um JSON com:
+            - "quantity" (number): Apenas o número inteiro exato (ex: 4). Se não conseguir identificar, retorne 1.`;
     }
 
     try {
@@ -625,11 +982,11 @@ let openaiService = {
     let finalParams = [...relevanceParams, ...params];
 
     let sql = `
-            SELECT s.id, s.name, s.value, s.duration, c.id as company_id, c.name as company_name, c.city,
+            SELECT s.id, s.name, s.value, s.duration, s.requires_location, s.accepts_quantity, s.measurement_unit, c.id as company_id, c.name as company_name, c.city,
             (${relevanceCases.join(" + ")}) as relevance
             FROM services s
             INNER JOIN companies c ON s.company_id = c.id
-            WHERE (${orClauses.join(" OR ")})
+            WHERE c.asaas_status = 'APPROVED' AND (${orClauses.join(" OR ")})
         `;
 
     if (city) {
@@ -683,37 +1040,74 @@ let openaiService = {
     targetTime = null,
   ) {
     const data = await this.getCompanyScheduleAndAppointments(company_id, date);
-    const dayOfWeek = moment(date, "YYYY-MM-DD").day();
-    const hours = data.openingHours.find((h) => h.day === dayOfWeek);
 
-    if (!hours) return { slots: [] };
+    const dbDay = moment(date, "YYYY-MM-DD").day() + 1;
 
-    let startTimeStr = targetTime
-      ? `${date} ${targetTime}:00`
-      : `${date} ${hours.initial_date}`;
-    let current = moment(startTimeStr, "YYYY-MM-DD HH:mm:ss");
-    const end = moment(`${date} ${hours.final_date}`, "YYYY-MM-DD HH:mm:ss");
-    const opening = moment(
-      `${date} ${hours.initial_date}`,
-      "YYYY-MM-DD HH:mm:ss",
+    const hoursList = data.openingHours.filter(
+      (h) => parseInt(h.day) === dbDay,
     );
 
-    if (current.isBefore(opening)) current = opening;
+    if (hoursList.length === 0) return { slots: [] };
+
+    const now = moment();
+    const todayStr = now.format("YYYY-MM-DD");
+
+    if (moment(date, "YYYY-MM-DD").isBefore(todayStr)) {
+      return { slots: [] };
+    }
 
     let slots = [];
-    while (current.clone().add(duration, "minutes").isSameOrBefore(end)) {
-      const slotStart = current.format("YYYY-MM-DD HH:mm:ss");
-      const slotEnd = current
-        .clone()
-        .add(duration, "minutes")
-        .format("YYYY-MM-DD HH:mm:ss");
-      const isBusy = data.appointments.some(
-        (app) => slotStart < app.end && slotEnd > app.start,
+
+    for (let hours of hoursList) {
+      let startTimeStr = targetTime
+        ? `${date} ${targetTime}:00`
+        : `${date} ${hours.initial_date}`;
+      let current = moment(startTimeStr, "YYYY-MM-DD HH:mm:ss");
+      const end = moment(`${date} ${hours.final_date}`, "YYYY-MM-DD HH:mm:ss");
+      const opening = moment(
+        `${date} ${hours.initial_date}`,
+        "YYYY-MM-DD HH:mm:ss",
       );
 
-      if (!isBusy) slots.push(current.format("HH:mm"));
-      current.add(30, "minutes");
+      if (current.isBefore(opening)) current = opening;
+
+      if (date === todayStr) {
+        if (targetTime && current.isBefore(now)) {
+          continue;
+        }
+        if (!targetTime && current.isBefore(now)) {
+          const minutes = now.minute();
+          const remainder = 30 - (minutes % 30);
+          current = moment(now).add(remainder, "minutes").second(0);
+        }
+      }
+
+      while (current.clone().add(duration, "minutes").isSameOrBefore(end)) {
+        const mSlotStart = current.clone();
+        const mSlotEnd = current.clone().add(duration, "minutes");
+
+        const isBusy = data.appointments.some((app) => {
+          const appStart = moment(app.start);
+          const appEnd = moment(app.end);
+          return mSlotStart.isBefore(appEnd) && mSlotEnd.isAfter(appStart);
+        });
+
+        if (!isBusy) {
+          const timeStr = current.format("HH:mm");
+          if (!slots.includes(timeStr)) slots.push(timeStr);
+        }
+        current.add(30, "minutes");
+      }
     }
+
+    slots.sort();
+
+    if (targetTime) {
+      return slots.includes(targetTime)
+        ? { slots: [targetTime] }
+        : { slots: [] };
+    }
+
     return { slots };
   },
 
@@ -723,10 +1117,12 @@ let openaiService = {
       customer_name,
       customer_birthday,
       customer_cpf,
+      customer_email,
       date,
       duration,
-      total_value,
       services,
+      addressData,
+      selected_service,
     } = args;
 
     const requestedDate = date.split(" ")[0];
@@ -739,28 +1135,110 @@ let openaiService = {
       safeDuration,
       requestedTime,
     );
+
     if (!availability.slots.includes(requestedTime)) {
       return "Infelizmente este horário foi preenchido por outra pessoa enquanto conversávamos. Podemos verificar outro momento?";
     }
+
+    const baseServices =
+      services && services.length > 0 ? services : [selected_service];
+    const serviceIds = baseServices.map((s) => s.id);
+
+    const dbServices = await functions.executeSql(
+      `SELECT id, value, accepts_quantity, name FROM services WHERE id IN (${serviceIds.join(",")})`,
+    );
+
+    let calculatedTotal = 0;
+
+    const finalServices = baseServices.map((s) => {
+      const dbSrv = dbServices.find((db) => db.id === s.id);
+
+      const rawQuantity =
+        s.quantity ||
+        (selected_service && selected_service.id === s.id
+          ? selected_service.quantity
+          : 1);
+      const qty =
+        dbSrv.accepts_quantity && rawQuantity ? parseInt(rawQuantity) : 1;
+
+      calculatedTotal += dbSrv.value * qty;
+
+      return { ...s, name: dbSrv.name, value: dbSrv.value, quantity: qty };
+    });
 
     const customerId = await this.getOrCreateCustomer(
       phone,
       customer_name,
       customer_birthday,
       customer_cpf,
+      customer_email,
       company_id,
     );
+
     const prefResult = await functions.executeSql(
       `SELECT ccp.active FROM config_companies_preferences ccp INNER JOIN preferences p ON p.id = ccp.preference_id WHERE ccp.company_id = ? AND p.code = 'require_payment_on_booking'`,
       [company_id],
     );
 
+    let newAppId = null;
+
     try {
       if (prefResult.length > 0 && prefResult[0].active === 1) {
-        const paymentLink = await _asaasService.createPaymentLink(
+        newAppId = await _appointmentsService.create(
+          company_id,
           customerId,
-          total_value,
+          customer_name,
+          date,
+          safeDuration,
+          "",
+          finalServices,
+          "agendado",
+          addressData,
         );
+
+        await functions.executeSql(
+          `UPDATE appointments SET payment_status = 'pendente' WHERE id = ?`,
+          [newAppId],
+        );
+
+        const companyData = await functions.executeSql(
+          `SELECT asaas_api_key FROM companies WHERE id = ?`,
+          [company_id],
+        );
+        const subaccountApiKey = companyData[0].asaas_api_key;
+
+        if (!subaccountApiKey) {
+          throw new Error(
+            "A empresa ainda não configurou os recebimentos online. Por favor, tente novamente mais tarde.",
+          );
+        }
+
+        const asaasCustomerId = await _asaasService.getOrCreateCustomer(
+          {
+            name: customer_name,
+            cpf: customer_cpf,
+            tel: phone,
+            email: customer_email,
+          },
+          subaccountApiKey,
+        );
+
+        const firstService = finalServices[0];
+        const descriptionString =
+          firstService.quantity > 1
+            ? `${firstService.name} (x${firstService.quantity})`
+            : firstService.name;
+
+        const paymentLink = await _asaasService.createPaymentLink(
+          {
+            customerAsaasId: asaasCustomerId,
+            value: calculatedTotal,
+            externalReference: `APP_${newAppId}`,
+            description: `Agendamento - ${descriptionString}`,
+          },
+          subaccountApiKey,
+        );
+
         return `PAGAMENTO_PENDENTE|${paymentLink.url}`;
       } else {
         await _appointmentsService.create(
@@ -770,14 +1248,26 @@ let openaiService = {
           date,
           safeDuration,
           "",
-          services,
+          finalServices,
           "agendado",
-          null,
+          addressData,
         );
         return "SUCESSO";
       }
     } catch (error) {
-      return `Ocorreu um erro no nosso sistema ao registrar: ${error.message || "Falha na inserção"}.`;
+      if (newAppId) {
+        await functions.executeSql(`DELETE FROM appointments WHERE id = ?`, [
+          newAppId,
+        ]);
+      }
+
+      const msgErro = error.message
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Falha na inserção";
+
+      return `Ocorreu um erro no nosso sistema ao registrar: ${msgErro}.`;
     }
   },
 
@@ -833,43 +1323,111 @@ let openaiService = {
   },
 
   getCompanyScheduleAndAppointments: async function (company_id, date) {
-    const openingHours = await functions.executeSql(
+    const dayMap = {
+      1: "Domingo",
+      2: "Segunda-feira",
+      3: "Terça-feira",
+      4: "Quarta-feira",
+      5: "Quinta-feira",
+      6: "Sexta-feira",
+      7: "Sábado",
+    };
+
+    const dbDay = moment(date, "YYYY-MM-DD").day() + 1;
+    const requestedDayName = dayMap[dbDay];
+
+    const openingHoursRaw = await functions.executeSql(
       `SELECT day, initial_date, final_date FROM config_companies_schedule WHERE company_id = ?`,
       [company_id],
     );
+
+    const openingHours = openingHoursRaw.map((item) => ({
+      day: item.day,
+      day_name: dayMap[item.day],
+      initial_date: item.initial_date,
+      final_date: item.final_date,
+    }));
+
     const appointments = await _appointmentsService.getAllByCompany(
       company_id,
       false,
       date,
     );
-    const optimizedAppointments = appointments.map((app) => ({
-      start: app.start,
-      end: app.end,
-    }));
-    return { openingHours, appointments: optimizedAppointments };
+
+    const optimizedAppointments = appointments
+      .filter((app) => app.status !== "cancelado")
+      .map((app) => ({
+        start: app.start,
+        end: app.end,
+      }));
+
+    return {
+      requested_day_name: requestedDayName,
+      openingHours,
+      appointments: optimizedAppointments,
+    };
   },
 
-  getOrCreateCustomer: async function (phone, name, birthday, cpf, company_id) {
+  getOrCreateCustomer: async function (
+    phone,
+    name,
+    birthday,
+    cpf,
+    email,
+    company_id,
+  ) {
     const cleanCpf = cpf ? cpf.replace(/\D/g, "") : "00000000000";
     let formattedBirthday =
       birthday && birthday.includes("-")
         ? `${birthday} 00:00:00`
         : "1900-01-01 00:00:00";
 
+    const finalName =
+      name && name !== "Não Informado" ? name : "Cliente WhatsApp";
+
     let results = await functions.executeSql(
-      `SELECT id FROM customers WHERE cpf = ?`,
-      [cleanCpf],
+      `SELECT id, name FROM customers WHERE cpf = ? AND company_id = ?`,
+      [cleanCpf, company_id],
     );
-    if (results.length > 0) return results[0].id;
+
+    if (results.length > 0) {
+      const existing = results[0];
+      if (
+        !existing.name ||
+        existing.name === "Não Informado" ||
+        existing.name.length < 3
+      ) {
+        await functions.executeSql(
+          `UPDATE customers SET name = ?, email = ?, birthday = ? WHERE id = ?`,
+          [finalName, email || null, formattedBirthday, existing.id],
+        );
+      }
+      return existing.id;
+    }
 
     results = await functions.executeSql(
-      `INSERT INTO customers (name, birthday, tel, company_id, cpf) VALUES (?, ?, ?, ?, ?)`,
+      `SELECT id FROM customers WHERE phone = ? AND company_id = ?`,
+      [phone, company_id],
+    );
+
+    if (results.length > 0) {
+      const existingId = results[0].id;
+      await functions.executeSql(
+        `UPDATE customers SET name = ?, cpf = ?, email = ?, birthday = ? WHERE id = ?`,
+        [finalName, cleanCpf, email || null, formattedBirthday, existingId],
+      );
+      return existingId;
+    }
+
+    results = await functions.executeSql(
+      `INSERT INTO customers (name, birthday, phone, company_id, cpf, email) VALUES (?, ?, ?, ?, ?, ?)`,
       [
-        name || "Cliente WhatsApp",
+        finalName,
         formattedBirthday,
         phone,
         company_id,
         cleanCpf,
+        email || null,
       ],
     );
 

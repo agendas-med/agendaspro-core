@@ -28,7 +28,14 @@ let schema = {
             'number.integer': errors.integer.integer(),
             'number.min': "A duração do serviço deve ser no mínimo 1 minuto.",
             'any.required': errors.string.empty()
-        })
+        }),
+        requires_location: Joi.boolean().allow('', null).optional().messages({
+            'boolean.base': "O valor de requires_location deve ser verdadeiro ou falso."
+        }),
+        accepts_quantity: Joi.boolean().allow('', null).optional().messages({
+            'boolean.base': "O valor de accepts_quantity deve ser verdadeiro ou falso."
+        }),
+        measurement_unit_id: Joi.number().integer().min(1).max(7).allow('', null).optional()
     })
 }
 
