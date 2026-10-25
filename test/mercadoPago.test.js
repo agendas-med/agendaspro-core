@@ -71,28 +71,7 @@ test('aceite e processamento do payout não significam crédito no destino', () 
   assert.equal(rules.payoutState({ status: 'success', status_detail: 'accredited' }), 'paid');
   assert.equal(rules.payoutState({ status: 'refunded', status_detail: 'refunded' }), 'needs_review');
 });
-test('produção assina os bytes exatos com Ed25519 e testes enviam o header explícito', () => {
-  const names = ['MP_ENV', 'MP_ACCESS_TOKEN', 'MP_COLLECTOR_ID', 'MP_PAYOUTS_ENABLED', 'MP_PRIVATE_KEY_PATH'];
-  const original = Object.fromEntries(names.map(name => [name, process.env[name]]));
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agendaspro-mp-sign-'));
-  const keyPath = path.join(dir, 'test-private.pem');
-  try {
-    process.env.MP_ACCESS_TOKEN = 'unit-test'; process.env.MP_COLLECTOR_ID = '123'; process.env.MP_PAYOUTS_ENABLED = 'true';
-    process.env.MP_ENV = 'test';
-    assert.equal(config.payoutHeaders('{}')['X-test-token'], 'true');
-    const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
-    fs.writeFileSync(keyPath, privateKey.export({ format: 'pem', type: 'pkcs8' }));
-    process.env.MP_ENV = 'production'; process.env.MP_PRIVATE_KEY_PATH = keyPath;
-    const body = '{"amount":94.01}';
-    const headers = config.payoutHeaders(body);
-    assert.equal(headers['X-enforce-signature'], 'true');
-    assert.equal(crypto.verify(null, Buffer.from(body), publicKey, Buffer.from(headers['X-signature'], 'base64')), true);
-    assert.equal(crypto.verify(null, Buffer.from(body + ' '), publicKey, Buffer.from(headers['X-signature'], 'base64')), false);
-    process.env.MP_PAYOUTS_ENABLED = 'false';
-    assert.throws(() => config.payoutHeaders(body), /desativados/);
-  } finally {
-    for (const name of names) original[name] === undefined ? delete process.env[name] : process.env[name] = original[name];
-    fs.unlinkSync(keyPath);
-    fs.rmdirSync(dir);
-  }
+test('payouts permanecem bloqueados mesmo com a flag antiga ativada', () => {
+  process.env.MP_PAYOUTS_ENABLED = 'true';
+  assert.throws(() => config.payoutHeaders('{}'), /Payouts desativado/);
 });

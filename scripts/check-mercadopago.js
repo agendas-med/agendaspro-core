@@ -9,8 +9,9 @@ async function check() {
     account_is_test: Array.isArray(data.tags) ? data.tags.includes('test_user') : null,
     site_id: data.site_id,
     collector_matches: String(data.id) === settings.collectorId,
-    payouts_enabled: settings.payoutsEnabled, commission_bps: settings.commissionBps }, null, 2));
-  console.log('Consulta de credencial concluída. A permissão de Payouts precisa ser validada separadamente no teste de envio.');
+    mode: 'split_1_1', oauth_configured: !!(settings.clientId && settings.clientSecret && settings.redirectUri && process.env.MP_TOKEN_ENCRYPTION_KEY),
+    plans: [{ code: 'free', monthly_brl: 0, commission_percent: 5 }, { code: 'premium', monthly_brl: 49.90, commission_percent: 1 }] }, null, 2));
+  console.log('Consulta de credencial concluída. Valide também o OAuth de um vendedor e o primeiro pagamento com comissão.');
 }
 if (require.main === module) check().catch(error => {
   console.error(error.response?.status ? `Mercado Pago retornou HTTP ${error.response.status}.` : error.message);

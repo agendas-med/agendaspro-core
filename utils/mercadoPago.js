@@ -61,7 +61,7 @@ function verifySignature(req, secret) {
   const dataId = req.query['data.id'];
   const requestId = req.headers['x-request-id'];
   const signature = req.headers['x-signature'];
-  if (!secret || typeof dataId !== 'string' || !/^(?:\d+|ORD[A-Z0-9]+)$/i.test(dataId) || typeof requestId !== 'string' || typeof signature !== 'string') return false;
+  if (!secret || typeof dataId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(dataId) || typeof requestId !== 'string' || typeof signature !== 'string') return false;
   if (req.body?.data?.id !== undefined && String(req.body.data.id) !== dataId) return false;
   const parts = Object.fromEntries(signature.split(',').map(part => part.trim().split('=')));
   if (!/^\d+$/.test(parts.ts || '') || !/^[a-f\d]{64}$/i.test(parts.v1 || '')) return false;

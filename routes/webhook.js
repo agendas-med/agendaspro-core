@@ -6,13 +6,14 @@ const webhookAuth = require('../middleware/webhookAuth');
 
 router.post('/mercadopago', async (req, res) => {
     if (!require('../utils/mercadoPago').verifySignature(req, process.env.MP_WEBHOOK_SECRET)) return res.status(401).json({ message: 'Assinatura inválida.' });
-    if (!['payment', 'order'].includes(req.body.type)) return res.json({ ignored: true });
-    try { res.json(await require('../services/mercadoPagoPaymentsService').paymentNotification(req.query['data.id'], req.body.type)); }
+    if (!['payment', 'order', 'subscription_preapproval', 'subscription_authorized_payment'].includes(req.body.type)) return res.json({ ignored: true });
+    try { res.json(req.body.type.startsWith('subscription_')
+      ? await require('../services/mercadoPagoPlansService').notification(req.query['data.id'], req.body.type)
+      : await require('../services/mercadoPagoSplitService').paymentNotification(req.query['data.id'], req.body.type, req.query.charge_id, req.body.user_id)); }
     catch { res.status(503).json({ message: 'Não foi possível reconciliar o pagamento.' }); }
 });
 router.post('/mercadopago/payouts', async (req, res) => {
-    try { res.json(await require('../services/mercadoPagoPaymentsService').payoutNotification(req.body.payout?.id, req.body.id)); }
-    catch { res.status(503).json({ message: 'Não foi possível reconciliar o repasse.' }); }
+    res.status(410).json({ message: 'Payouts substituído por split 1:1.' });
 });
 
 router.post("/whatsapp", webhookAuth, async (req, res) => {

@@ -396,7 +396,7 @@ CREATE TABLE `payments` (
   `sale_id` int(11) NOT NULL,
   `amount` float NOT NULL,
   `customer_id` int(11) NOT NULL,
-  `payment_type` enum('pix','pix_asaas','pix_mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL,
+  `payment_type` enum('pix','pix_asaas','pix_mercadopago','mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL,
   `external_id` varchar(255) DEFAULT NULL,
   `create_date` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),

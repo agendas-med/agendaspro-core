@@ -3,10 +3,10 @@ const config = require('../config/mercadopago');
 const orders = require('../utils/mercadoPagoOrders');
 const client = axios.create({ baseURL: 'https://api.mercadopago.com', timeout: 15000, maxRedirects: 0, maxContentLength: 20 * 1024 * 1024 });
 
-async function request(method, path, data, headers = {}) {
+async function request(method, path, data, headers = {}, accessToken) {
   const settings = config.requireCredentials();
   const response = await client.request({ method, url: path, data,
-    headers: { Authorization: `Bearer ${settings.accessToken}`, 'Content-Type': 'application/json', ...headers } });
+    headers: { Authorization: `Bearer ${accessToken || settings.accessToken}`, 'Content-Type': 'application/json', ...headers } });
   return response.data;
 }
 const id = value => {
@@ -37,7 +37,7 @@ async function release(order) {
 }
 
 module.exports = {
-  client,
+  client, request, account,
   async createPix(body, key, api = 'orders') {
     if (api === 'payments') return request('POST', '/v1/payments', body, { 'X-Idempotency-Key': key });
     const owner = await account();
@@ -54,12 +54,6 @@ module.exports = {
     const owner = await account();
     const order = await request('GET', `/v1/orders/${id(paymentId)}`);
     const payment = orders.normalize(order, owner);
-    if (payment.status === 'approved') {
-      try {
-        const net = await release(order);
-        if (net !== null) { payment.transaction_details.net_received_amount = net; payment.money_release_status = 'released'; }
-      } catch { /* A cobrança pode ser confirmada; o repasse aguarda relatório verificável. */ }
-    }
     return payment;
   },
   cancelPayment(paymentId, api = 'orders', key) {

@@ -991,7 +991,7 @@ let openaiService = {
             (${relevanceCases.join(" + ")}) as relevance
             FROM services s
             INNER JOIN companies c ON s.company_id = c.id
-            WHERE ${require('../config/mercadopago').provider() === 'mercadopago' ? 'EXISTS (SELECT 1 FROM mp_destinations md WHERE md.company_id = c.id)' : "c.asaas_status = 'APPROVED'"} AND (${orClauses.join(" OR ")})
+            WHERE ${require('../config/mercadopago').provider() === 'mercadopago' ? `EXISTS (SELECT 1 FROM mp_connections mc WHERE mc.company_id = c.id AND mc.active = 1 AND mc.environment = '${require('../config/mercadopago').settings().environment}')` : "c.asaas_status = 'APPROVED'"} AND (${orClauses.join(" OR ")})
         `;
 
     if (city) {
@@ -1208,10 +1208,10 @@ let openaiService = {
 
         if (require('../config/mercadopago').provider() === 'mercadopago') {
           const [sale] = await functions.executeSql('SELECT id FROM sales WHERE appointment_id = ? AND company_id = ?', [newAppId, company_id]);
-          const charge = await require('./mercadoPagoPaymentsService').createCharge(company_id,
+          const charge = await require('./mercadoPagoSplitService').createCharge(company_id,
             { sale_id: sale.id, customer_id: customerId, amount: calculatedTotal }, require('node:crypto').randomUUID());
-          if (!charge.pix.url) throw new Error('Cobrança criada. Consulte o QR Code da venda para concluir o pagamento.');
-          return `PAGAMENTO_PENDENTE|${charge.pix.url}`;
+          if (!charge.checkout_url) throw new Error('Cobrança criada. Consulte a venda para concluir o pagamento.');
+          return `PAGAMENTO_PENDENTE|${charge.checkout_url}`;
         }
 
         const companyData = await functions.executeSql(

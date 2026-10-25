@@ -16,7 +16,7 @@ let schema = {
             'number.base': errors.float.base(),
             'number.min': errors.float.min(0.01)
         }),
-        payment_type: Joi.string().valid('pix', 'pix_asaas', 'pix_mercadopago', 'cartao_debito', 'cartao_credito', 'dinheiro').required().messages({
+        payment_type: Joi.string().valid('pix', 'pix_asaas', 'pix_mercadopago', 'mercadopago', 'cartao_debito', 'cartao_credito', 'dinheiro').required().messages({
             'string.base': errors.string.base(),
             'any.only': 'O status deve ser "pix", "cartao_debito", "cartao_credito" ou "dinheiro".',
             'any.required': errors.string.empty()

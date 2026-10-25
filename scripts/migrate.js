@@ -55,12 +55,20 @@ async function migrate() {
     const foreignKeys = await query("SELECT 1 FROM information_schema.key_column_usage WHERE table_schema = DATABASE() AND table_name = 'accounts_receivable' AND column_name = 'sale_id' AND referenced_table_name = 'sales'");
     if (!foreignKeys.length) await query('ALTER TABLE accounts_receivable ADD CONSTRAINT fk_receivable_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE');
     await query("ALTER TABLE whatsapp_sessions MODIFY status VARCHAR(50) DEFAULT 'active'");
-    await query("ALTER TABLE payments MODIFY payment_type ENUM('pix','pix_asaas','pix_mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL");
+    await query("ALTER TABLE payments MODIFY payment_type ENUM('pix','pix_asaas','pix_mercadopago','mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL");
     await add('sales', 'mp_charge_id', 'INT NULL');
     await query(fs.readFileSync(path.join(__dirname, '../sql/mercadopago.sql'), 'utf8'));
     // Cobranças anteriores mantêm seu contrato de Payments e seus corpos/chaves originais.
     await add('mp_charges', 'api_version', "VARCHAR(10) NOT NULL DEFAULT 'payments'");
     await add('mp_destinations', 'bank_name', 'VARCHAR(100) NULL');
+    await query(fs.readFileSync(path.join(__dirname, '../sql/mercadopago-split.sql'), 'utf8'));
+    for (const [column, definition] of Object.entries({
+      connection_id: 'INT NULL', seller_id: 'VARCHAR(30) NULL', provider_preference_id: 'VARCHAR(100) NULL',
+      commission_cents: 'BIGINT NULL', plan_code: 'VARCHAR(20) NULL', review_reason: 'VARCHAR(255) NULL',
+      last_checked_at: 'DATETIME NULL',
+    })) await add('mp_charges', column, definition);
+    await add('mp_subscriptions', 'last_checked_at', 'DATETIME NULL');
+    await query("ALTER TABLE payments MODIFY payment_type ENUM('pix','pix_asaas','pix_mercadopago','mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL");
     await add('payments', 'external_id', 'VARCHAR(255) NULL');
     await add('sales_products', 'unit_price', 'DECIMAL(12,2) NULL');
     await query('UPDATE sales_products sp JOIN products p ON p.id = sp.product_id SET sp.unit_price = p.value WHERE sp.unit_price IS NULL');
@@ -74,6 +82,7 @@ async function migrate() {
     await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_mercadopago_payouts')");
     await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_mercadopago_orders')");
     await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_receiving_account')");
+    await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261025_mercadopago_split_plans')");
     console.log('Schema atualizado; dados existentes preservados.');
   } finally {
     await query("SELECT RELEASE_LOCK('agendaspro_schema')").catch(() => {});

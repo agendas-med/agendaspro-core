@@ -1,5 +1,7 @@
 # Habilitação de Payouts — diagnóstico de 25/10/2026
 
+> Histórico do fluxo anterior. Payouts foi substituído por split 1:1 e seus endpoints de envio estão desativados. Para a configuração atual, consulte [Mercado Pago](mercadopago.md). Não siga as etapas de ativação abaixo para a nova integração.
+
 ## Resultado observado
 
 Foi executada uma solicitação isolada de teste para `POST https://api.mercadopago.com/v1/payouts`, com:

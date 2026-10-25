@@ -16,6 +16,7 @@ test('fluxos reais no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_PASSWORD
     process.env.MYSQL_USER = 'root';
     process.env.MYSQL_PASSWORD = process.env.MYSQL_ROOT_PASSWORD;
     process.env.ENABLE_REMINDERS = 'false';
+    process.env.MP_RECONCILE_ENABLED = 'false';
     process.env.ASAAS_API_KEY = '';
     process.env.PAYMENT_PROVIDER = 'asaas';
     process.env.JWT_KEY ||= 'integration-only-key';

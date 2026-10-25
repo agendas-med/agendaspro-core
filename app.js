@@ -8,7 +8,7 @@ if (process.env.ENABLE_REMINDERS !== 'false') cron.schedule('* * * * *', async (
     catch (error) { console.error('[Lembretes]', error.message); }
 });
 
-if (process.env.MP_AUTO_PAYOUTS === 'true') {
+if (process.env.MP_RECONCILE_ENABLED !== 'false' && process.env.MP_ACCESS_TOKEN && process.env.MP_COLLECTOR_ID) {
     let running = false;
     cron.schedule('* * * * *', async () => {
         if (running) return;
@@ -37,7 +37,7 @@ const utilsRoute = require("./routes/utils");
 const stockRoute = require("./routes/stock");
 const webhookRoute = require("./routes/webhook");
 
-app.use(morgan('dev'));
+app.use(morgan('dev', { skip: req => req.path === '/payments/mercadopago/oauth/callback' }));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());

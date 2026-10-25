@@ -1,97 +1,76 @@
-# Mercado Pago: Pix central e repasse ao assinante
+# Mercado Pago — contas conectadas, split 1:1 e planos
 
-Branch `feature/mercado-pago-payouts`. Para uma aplicação nova, selecione **Checkout Transparente → API de Orders** no painel Mercado Pago. A API cria o Pix na conta central do AgendasPro pela Orders API (`/v1/orders`). Após confirmação consultada no provedor, registra o pagamento da venda e, quando o líquido liberado estiver confirmado, prepara um repasse pela API brasileira de Payouts (`/v1/payouts`). O assinante informa sua chave Pix; não precisa conectar uma conta Mercado Pago neste modelo. A escolha de Orders para cobrar não habilita Payouts automaticamente.
+Os novos recebimentos usam Checkout Pro (API de Preferências). O vendedor autoriza sua conta Mercado Pago via OAuth com PKCE; cada cobrança usa o token desse vendedor e `marketplace_fee` para separar a comissão do AgendasPro. O restante fica na conta Mercado Pago do vendedor, sujeito às tarifas e aos prazos do provedor. O AgendasPro não transfere dinheiro por Payouts.
 
-Esta implementação não comprova a aprovação comercial de uma conta central CPF para receber por vários prestadores. O teste real exige credenciais e liberação do produto para a conta. A [documentação de produção](https://www.mercadopago.com.br/developers/pt/docs/payouts/go-to-production) exige enviar a chave pública à equipe de Integrações. Uma resposta 403 deve ser tratada como ausência de permissão; não trocar o endpoint por uma transferência não documentada.
+## Planos por empresa
 
-## Configuração de teste
+| Plano | Mensalidade | Comissão AgendasPro |
+| --- | --- | --- |
+| Gratuito | R$ 0 | 5% do valor de cada pagamento online |
+| Premium | R$ 49,90/mês | 1% do valor de cada pagamento online |
 
-Use o `.env` ignorado pelo Git. Não coloque tokens em arquivos do front, scripts compartilhados ou commits.
+A comissão é arredondada para centavos e congelada na criação da cobrança, junto com o plano e a conta do vendedor. As tarifas do Mercado Pago são adicionais. Pagamentos manuais não geram comissão automática. O percentual e a mensalidade são determinados pelo servidor; o navegador não escolhe os valores nem ativa o Premium.
+
+A assinatura Premium é uma cobrança recorrente separada na conta central do AgendasPro, pela API `/preapproval`. A autorização do cartão/assinatura, o clique no retorno e o status `authorized` não ativam o desconto. Uma fatura de R$ 49,90 com pagamento aprovado, moeda, recebedor e ambiente conferidos concede o período mensal. Faturas repetidas não estendem o período. Cancelar a renovação mantém o período já pago; vencimento, devolução ou contestação retiram o benefício. Novas cobranças usam então 5%; cobranças já criadas preservam seu percentual.
+
+## Configuração
+
+1. Na aplicação Mercado Pago, selecione Checkout Pro e modelo Marketplace quando essa opção estiver disponível. Permita leitura, escrita e acesso offline. Ative PKCE.
+2. Cadastre a Redirect URL **exatamente** como `MP_OAUTH_REDIRECT_URI`. Para o teste local atual:
+   `https://reclining-banknote-clumsily.ngrok-free.dev/payments/mercadopago/oauth/callback`.
+3. Preencha no `.env`, sem publicar segredos:
 
 ```dotenv
 PAYMENT_PROVIDER=mercadopago
 MP_ENV=test
-MP_ACCESS_TOKEN=credencial_de_teste_da_aplicacao
-MP_COLLECTOR_ID=id_da_conta_central
-MP_WEBHOOK_SECRET=assinatura_secreta_do_painel_de_webhooks
-MP_WEBHOOK_URL=https://sua-url-publica/webhook/mercadopago
-MP_PAYOUT_WEBHOOK_URL=https://sua-url-publica/webhook/mercadopago/payouts
-MP_COMMISSION_BPS=500
-MP_PAYOUTS_ENABLED=false
-MP_AUTO_PAYOUTS=false
-MP_PRIVATE_KEY_PATH=
-MP_RELEASE_REPORT_FILE=
+MP_ACCESS_TOKEN=<token central do AgendasPro, no ambiente correto>
+MP_COLLECTOR_ID=<id da conta central>
+MP_CLIENT_ID=<id da aplicação Marketplace>
+MP_CLIENT_SECRET=<segredo da mesma aplicação>
+MP_OAUTH_REDIRECT_URI=https://seu-dominio/payments/mercadopago/oauth/callback
+MP_TOKEN_ENCRYPTION_KEY=<32 bytes aleatórios codificados em base64>
+MP_WEBHOOK_URL=https://seu-dominio/webhook/mercadopago
+MP_WEBHOOK_SECRET=<assinatura secreta de webhooks da mesma aplicação>
+MP_RECONCILE_ENABLED=true
+URL_SITE=http://localhost:8080
 ```
 
-`MP_COMMISSION_BPS=500` significa 5% sobre o valor bruto. A porcentagem é congelada na criação da cobrança. Orders não possui o mesmo `fee_details` de Payments: o líquido é conferido no relatório de valores liberados (`bank_report`) baixado pelo backend com a credencial da conta central. Não se presume tarifa de 0,99%. Exemplo: pagamento de R$ 100, líquido de R$ 99,01, comissão de R$ 5: repasse de R$ 94,01. Eventual tarifa adicional de Payouts é custo da plataforma e precisa ser confirmada no contrato, não é estimada ou cobrada do assinante pelo código.
+Guarde a chave de criptografia com o backup do banco. Trocar ou perder essa chave torna os tokens conectados ilegíveis e exige reconectar os vendedores. Tokens OAuth e refresh tokens são armazenados cifrados com AES-256-GCM e não são retornados ao frontend.
 
-Configure a geração do relatório de **Liberações** no Mercado Pago, em CSV, com as colunas `ORDER_MP`, `EXTERNAL_REFERENCE`, `RECORD_TYPE`, `DESCRIPTION`, `NET_CREDIT_AMOUNT`, `NET_DEBIT_AMOUNT`, `GROSS_AMOUNT`, `CURRENCY` e `PAYMENT_METHOD`. O back procura o relatório CSV mais recente em `/v1/account/bank_report/list`; opcionalmente, `MP_RELEASE_REPORT_FILE` fixa um arquivo para homologação. Só aceita um movimento de crédito `release/payment`, em BRL, ligado à order e à referência da cobrança, sem débito e com bruto igual ao valor pago. Sem relatório, ou com múltiplos movimentos/valores divergentes, o recebimento é registrado e o repasse aguarda conferência. O tempo para repassar depende da disponibilização desse relatório; não há promessa de envio imediato após o Pix.
+4. Configure os eventos de webhooks: `payment`, `subscription_preapproval` e `subscription_authorized_payment`. Mantenha `order` enquanto existirem cobranças antigas de Orders. Os rótulos do painel podem ser Pagamentos (legacy), Planos e assinaturas e Order (Mercado Pago). A URL é `/webhook/mercadopago`; **não** use o callback OAuth como webhook.
+5. Execute `npm run db:migrate` e reinicie a API após alterar o `.env`. O túnel deve encaminhar para a porta da API (3001).
+6. Em Configurações → Recebimentos, um administrador clica **Conectar Mercado Pago** e autoriza a conta do vendedor. O vendedor deve ser diferente da conta central e pertencer ao ambiente brasileiro configurado. No sandbox, use contas de teste distintas de integrador, vendedor e comprador.
 
-Execute `npm run payments:check` para consultar `/users/me` e obter o ID a preencher em `MP_COLLECTOR_ID`. Confira `site_id=MLB` e `account_is_test=true` no sandbox: o back bloqueia uma conta real quando `MP_ENV=test`. Siga a configuração atual de contas/credenciais de teste do painel Orders; o prefixo do token, sozinho, não identifica o ambiente. Essa consulta não libera nem comprova permissão de Payouts. Execute `npm run db:migrate` e reinicie o servidor após configurar o ambiente. A conta central precisa ter Pix habilitado para gerar cobranças.
+Mudar a seleção no painel não preenche automaticamente o `.env`. Ao trocar de aplicação, atualize também token central, IDs e segredo de webhook conforme necessário. A conexão e a retenção de comissão ainda precisam ser homologadas com o provedor; o botão não comprova permissão de split nem verificação de identidade do recebedor.
 
-O front na branch `feature/mercado-pago-payouts` integra este fluxo. Depois de criar a empresa, o usuário segue para **Configurações → Recebimentos**. O card de conta bancária abre um modal com banco (opcional), titular, documento da empresa e chave Pix. A edição pode manter a chave anterior sem expô-la: deixe a chave em branco e mantenha o tipo. Somente administradores alteram o destino.
+## Fluxo e endpoints
 
-Na venda, **Receber pagamento → Pix online · Mercado Pago** salva os itens, consulta o total calculado pelo backend e gera a cobrança. O navegador conserva a chave de idempotência para retomar uma tentativa incerta. A confirmação automática apenas consulta a venda local; o registro do recebimento é feito pelo webhook autenticado. O botão **Verificar pagamento** oferece a reconciliação manual e **Cancelar cobrança Pix** solicita o cancelamento ao provedor. O QR também é gerado no próprio navegador a partir do código Pix quando o provedor não fornece a imagem.
+- `GET /payments/mercadopago/status`: configuração pública, conta conectada e plano vigente da empresa.
+- `POST /payments/mercadopago/connect`: inicia OAuth, apenas administrador. O estado aleatório é persistido como hash, expira em 10 minutos e só pode ser utilizado uma vez. A permissão é conferida novamente no callback.
+- `GET /payments/mercadopago/oauth/callback`: troca o código no servidor e redireciona para Recebimentos. Não registra códigos OAuth no log HTTP.
+- `POST /payments/mercadopago/disconnect`: impede novas cobranças; preserva tokens necessários à conciliação de pagamentos anteriores. Não revoga o aplicativo no painel do Mercado Pago.
+- `POST /sales/insert_payment` ou `POST /payments/mercadopago/charges`, com `payment_type=mercadopago` e `Idempotency-Key`: gera o checkout com a comissão vigente.
+- `GET /payments/mercadopago/charges/:id` e `POST .../:id/reconcile`: consulta local e conciliação autenticada com o token do vendedor original.
+- `POST /payments/mercadopago/plans/premium`: prepara a assinatura mensal; não ativa o desconto.
+- `POST /payments/mercadopago/plans/:id/reconcile` e `POST .../:id/cancel`: confere faturas e cancela a renovação, apenas administrador.
+- `/payments/mercadopago/payouts*`, `/destination` e `/webhook/mercadopago/payouts` retornam HTTP 410. Nenhuma flag antiga reativa envios.
 
-O painel de recebimentos mostra os pagamentos e a situação do repasse. O financeiro considera serviços, produtos e pagamentos parciais da venda, sem multiplicar valores entre itens e pagamentos. O WhatsApp usa Mercado Pago quando o provedor selecionado é `mercadopago` e o recebimento online está configurado. Os endpoints abaixo também permitem homologação pelo Postman ou outro cliente HTTP.
+O checkout retorna um link para Pix ou cartão no Mercado Pago. O webhook assinado é um aviso: o backend consulta o pagamento autenticado e valida referência, vendedor, ambiente, moeda, valor e comissão da aplicação. Só então registra o pagamento. O retorno do comprador não comprova pagamento. Em caso de timeout na criação, pesquisa a intenção persistida pela referência; não envia cegamente um segundo POST. Se o provedor ainda não localizar o recurso, a cobrança permanece pendente para recuperação, sem gerar outra chave.
 
-## Roteiro HTTP
+Encerrar o checkout impede novas tentativas na preferência. Um Pix/boleto já emitido ainda pode ser confirmado posteriormente; o backend continua aceitando sua conciliação. Recebimentos para vendas canceladas, com saldo insuficiente, pagamentos adicionais ou devoluções são sinalizados para revisão financeira, sem nova saída de dinheiro. Estornos devem ser realizados no provedor e reconciliados; não existe botão de estorno implementado no sistema.
 
-Use `Authorization: Bearer <JWT do AgendasPro>` e `Selected-company: <ID da empresa>` nos endpoints `/payments/mercadopago`. Webhooks não usam o JWT do usuário. Administradores podem configurar o destino e enviar repasses; membros só consultam ou cobram as vendas da própria empresa.
+## Banco, compatibilidade e testes
 
-1. `GET /payments/mercadopago/status`: confira ambiente, configuração, comissão e destino mascarado.
-   `GET /payments/mercadopago/charges`: lista os recebimentos da empresa no ambiente atual, sem tokens, corpos de requisição ou chave Pix completa.
-2. `PUT /payments/mercadopago/destination`: cadastre um destino. O documento deve coincidir com o CPF/CNPJ da empresa; os tipos de chave aceitos são `CPF`, `CNPJ`, `EMAIL`, `PHONE` (formato `+5511999999999`) e `PIX_CODE` (UUID). A titularidade das chaves de e-mail/telefone/aleatória precisa ser conferida no onboarding; a validação local de formato não consulta o DICT.
+`sql/mercadopago-split.sql` acrescenta conexões, estados OAuth, assinaturas e faturas. A migração acrescenta à cobrança a conta de origem, a preferência, o plano e a comissão congelada. Não remove dados de cobranças, destinos ou repasses históricos. As cobranças antigas continuam sendo consultadas pelo contrato original, mas não geram novos payouts.
 
-```json
-{
-  "holder_name": "Nome do assinante",
-  "holder_document": "CPF ou CNPJ valido, somente digitos",
-  "pix_key_type": "CPF",
-  "pix_key": "mesmo CPF"
-}
-```
+`npm test` usa MariaDB isolado e um servidor HTTP local simulando o Mercado Pago; nunca utiliza contas reais nesses testes. Cobre isolamento de empresa e permissões, OAuth/PKCE e replay, criptografia e renovação, cobrança de 5%/1%, resposta perdida, assinatura sem pagamento, webhook duplicado, cancelamento e expiração do Premium. Execute também o build do frontend.
 
-3. Crie uma venda e obtenha seu `sale_id` e `customer_id`. O cliente deve ter e-mail cadastrado.
-4. `POST /payments/mercadopago/charges`, com header `Idempotency-Key: <UUID único da operação>`. O endpoint `/sales/insert_payment` também aceita o mesmo corpo/header. Reutilize essa chave após timeout; uma operação diferente exige nova chave.
+Esses testes não substituem homologação real. Para homologar: conectar vendedor de teste via navegador, criar uma venda, pagar pelo comprador de teste, receber o webhook real e verificar a comissão nas duas contas. Assinar Premium no sandbox, conferir a fatura e gerar uma nova cobrança com 1%. Nenhum pagamento real deve ser necessário para esse roteiro.
 
-```json
-{
-  "sale_id": 1,
-  "customer_id": 1,
-  "amount": 100,
-  "payment_type": "pix_mercadopago"
-}
-```
+## Fontes oficiais
 
-5. A resposta contém `id` da cobrança local, `api=orders`, `pix.payload`, `pix.encodedImage`, `pix.url` e validade solicitada de uma hora. Orders pode responder em processamento, com `pix` ainda vazio. Nesse caso, aguarde o webhook ou execute a reconciliação e depois `GET /payments/mercadopago/charges/:id` para recuperar o QR; não gere outra cobrança. Salve o ID local; ele difere do ID `ORD...` do provedor. Para cancelar, use `POST /sales/cancel_pix` com `{"sale_id":1}`; o cancelamento só libera a venda depois de confirmado no provedor.
-6. Configure as notificações do tópico **Orders** no painel Mercado Pago para `MP_WEBHOOK_URL`; o corpo da notificação usa `type=order`. A URL não é enviada no body de criação de uma order. O webhook valida HMAC de `data.id` (alfanumérico em minúsculas no manifesto), `x-request-id` e `ts`; depois consulta Orders, conferindo ID, referência, valor, país, conta central e transação Pix. A identidade e o ambiente são verificados também via `/users/me`. Só registra recebimento com order e transação `processed/accredited` e total efetivamente pago correspondente. Para recuperação, use `POST /payments/mercadopago/charges/:id/reconcile` com `{}`. Em teste, siga os [cenários de Pix com Orders](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/integration-test/pix); o back não fornece um endpoint para simular aprovação em produção.
-7. `GET /payments/mercadopago/payouts` lista os repasses preparados e mostra bruto, tarifa de recebimento, comissão, líquido e situação. Uma order aprovada ainda pode não ter repasse preparado enquanto o relatório de liberações não estiver disponível. Só é preparado um repasse por cobrança. A conta de destino é congelada no registro e não muda ao editar o cadastro depois.
-8. Quando Payouts estiver habilitado para a conta de teste, configure `MP_PAYOUTS_ENABLED=true` e reinicie a API. Execute `POST /payments/mercadopago/payouts/:id/submit` com `{}`. O back usa o valor/destino persistidos, consulta novamente a order, verifica ausência de devolução/contestação e exige confirmação do líquido no relatório de liberações.
-9. O envio aceito retorna `pending`. Use `POST /payments/mercadopago/payouts/:id/reconcile` ou receba o callback para consultar o status. Somente `success/accredited` marca `paid`; `success/in_progress` permanece pendente. Notificações de Payouts são tratadas como aviso e nunca como prova de pagamento: a transação precisa corresponder a um repasse local e ser consultada pela API autenticada.
-
-## Reexecução e automação
-
-Intenção, chave de idempotência e corpo exato são commitados antes de criar a cobrança ou enviar o repasse. Em falha de conexão após envio, reexecute a mesma operação; não é criada nova chave. Estados rejeitados/devolvidos ficam para revisão e não geram um segundo envio automático. Alteração do valor líquido também bloqueia o envio. Um pagamento recebido permanece registrado mesmo se a preparação do repasse depender de taxas ainda indisponíveis.
-
-A migração acrescenta `mp_charges.api_version`. Cobranças anteriores ficam com `payments`, preservando o corpo, a chave e os endpoints originais para recuperação e cancelamento; novas cobranças usam `orders`. Não altere esse campo em cobranças existentes. O webhook continua reconhecendo `payment` para liquidar histórico legado.
-
-`npm run payments:reconcile` executa uma rodada de recuperação de cobranças e consulta de repasses. Com `MP_AUTO_PAYOUTS=true` e `MP_PAYOUTS_ENABLED=true`, a API executa essa rodada a cada minuto e também envia repasses prontos, após as mesmas validações. O padrão é desligado. Não inicie múltiplos agendadores desnecessariamente; bloqueios transacionais e idempotência protegem reexecuções concorrentes.
-
-Devolução/contestação após recebimento ou repasse marca `needs_review`. A compensação contábil e o reembolso ao cliente precisam ser resolvidos pelo operador; esta branch não implementa estorno automático nem recuperação de valores já enviados. As tabelas preservam o histórico financeiro, inclusive após cancelamento. A chave Pix fica no banco; respostas públicas retornam somente a forma mascarada. Proteja acesso e backups do banco como os demais dados pessoais do sistema.
-
-## Produção
-
-Após homologação e confirmação comercial do modelo, use credenciais de produção, `MP_ENV=production` e `MP_PRIVATE_KEY_PATH` apontando para uma chave privada Ed25519 fora do repositório. Cadastre a chave pública com Mercado Pago. O backend assina os bytes exatos do corpo em base64 e usa `X-enforce-signature:true`; o modo de teste envia explicitamente `X-test-token:true`. Credenciais e registros de ambientes diferentes não são misturados. Os arquivos `.pem` e `.key` são ignorados pelo Git.
-
-## Validação e fontes
-
-`npm test` cobre MariaDB e APIs HTTP locais, usando um servidor de pagamentos simulado e sem movimentar dinheiro. Inclui respostas perdidas, reentregas, concorrência, autorização, valores divergentes, destino congelado, assinatura Ed25519 e confirmação final. Isso valida a aplicação; a homologação na conta Mercado Pago continua necessária.
-
-- [Pix pela Orders API](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/payment-integration/websites/pix)
-- [Migração de Payments para Orders](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/resources/migrate-payments-to-orders)
-- [Campos do relatório de liberações](https://www.mercadopago.com.br/developers/pt/docs/reports/released-money/report-fields)
-- [Criar e consultar Payouts](https://www.mercadopago.com.br/developers/pt/docs/payouts/integration-configuration/money-transfers)
-- [Notificações de Payouts](https://www.mercadopago.com.br/developers/pt/docs/payouts/notifications)
-- [Estados do repasse](https://www.mercadopago.com.br/developers/pt/docs/payouts/resources/transaction-status-and-errors)
-- [Homologar Payouts](https://www.mercadopago.com.br/developers/pt/docs/payouts/integration-test)
+- [Configurar split e OAuth](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/integration-configuration/create-configuration)
+- [Comissão no Checkout Pro](https://www.mercadopago.com.br/developers/pt/docs/split-payments/split-1-1/integration-configuration/integrate-marketplace)
+- [Limitação de split na migração do Checkout Transparente para Orders](https://www.mercadopago.com.br/developers/pt/docs/checkout-api-orders/resources/migrate-payments-to-orders)
+- [Assinaturas com pagamento pendente](https://www.mercadopago.com.br/developers/pt/docs/subscriptions/integration-configuration/subscription-no-associated-plan/pending-payments)
+- [Referência de faturas e pagamentos da assinatura](https://www.mercadopago.com.br/developers/pt/reference/online-payments/subscriptions/overview)

@@ -17,7 +17,7 @@ async function record(query, sale, amount, paymentType, externalId = null) {
 const paymentsService = {
   record,
   async insert(companyId, data, options = {}) {
-    if (data.payment_type === 'pix_mercadopago') return require('./mercadoPagoPaymentsService').createCharge(companyId, data, options.idempotencyKey);
+    if (['mercadopago', 'pix_mercadopago'].includes(data.payment_type)) return require('./mercadoPagoSplitService').createCharge(companyId, data, options.idempotencyKey);
     if (data.payment_type === 'pix_asaas' && require('../config/mercadopago').provider() !== 'asaas') throw new Error('Use pix_mercadopago nesta integração.');
     return functions.executeTransaction(async query => {
       const sale = await sales.lockSale(query, data.sale_id, companyId);
@@ -49,7 +49,7 @@ const paymentsService = {
   },
   async cancelPix(companyId, saleId) {
     const [current] = await functions.executeSql('SELECT mp_charge_id FROM sales WHERE id = ? AND company_id = ?', [saleId, companyId]);
-    if (current?.mp_charge_id) return require('./mercadoPagoPaymentsService').cancelCharge(companyId, saleId);
+    if (current?.mp_charge_id) return require('./mercadoPagoSplitService').cancelCharge(companyId, saleId);
     return functions.executeTransaction(async query => {
       const sale = await sales.lockSale(query, saleId, companyId);
       if (!sale.pix_asaas_id) return;

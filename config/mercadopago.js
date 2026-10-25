@@ -1,5 +1,3 @@
-const fs = require('node:fs');
-const crypto = require('node:crypto');
 
 function settings() {
   const environment = process.env.MP_ENV || 'test';
@@ -8,6 +6,9 @@ function settings() {
   if (!Number.isInteger(commissionBps) || commissionBps < 0 || commissionBps > 10000) throw new Error('MP_COMMISSION_BPS inválido.');
   return {
     environment, commissionBps,
+    clientId: process.env.MP_CLIENT_ID,
+    clientSecret: process.env.MP_CLIENT_SECRET,
+    redirectUri: process.env.MP_OAUTH_REDIRECT_URI,
     accessToken: process.env.MP_ACCESS_TOKEN,
     collectorId: process.env.MP_COLLECTOR_ID,
     webhookSecret: process.env.MP_WEBHOOK_SECRET,
@@ -23,14 +24,6 @@ function requireCredentials() {
   return config;
 }
 
-function payoutHeaders(body) {
-  const config = requireCredentials();
-  if (!config.payoutsEnabled) throw new Error('Repasses desativados. Configure MP_PAYOUTS_ENABLED após habilitar Payouts na conta.');
-  if (config.environment === 'test') return { 'X-test-token': 'true', 'X-enforce-signature': 'false' };
-  if (!process.env.MP_PRIVATE_KEY_PATH) throw new Error('Configure MP_PRIVATE_KEY_PATH para assinar os repasses em produção.');
-  const key = crypto.createPrivateKey(fs.readFileSync(process.env.MP_PRIVATE_KEY_PATH));
-  if (key.asymmetricKeyType !== 'ed25519') throw new Error('A chave de Payouts deve ser Ed25519.');
-  return { 'X-test-token': 'false', 'X-enforce-signature': 'true', 'X-signature': crypto.sign(null, Buffer.from(body), key).toString('base64') };
-}
+function payoutHeaders() { throw new Error('Payouts desativado: os novos pagamentos utilizam split 1:1.'); }
 
 module.exports = { settings, requireCredentials, payoutHeaders, provider: () => process.env.PAYMENT_PROVIDER || 'mercadopago' };
