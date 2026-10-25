@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS mp_charges (
   sale_id INT NOT NULL,
   customer_id INT NOT NULL,
   environment VARCHAR(10) NOT NULL,
+  api_version VARCHAR(10) NOT NULL DEFAULT 'payments',
   external_reference VARCHAR(50) NOT NULL UNIQUE,
   idempotency_key VARCHAR(100) NOT NULL UNIQUE,
   request_body MEDIUMTEXT NOT NULL,

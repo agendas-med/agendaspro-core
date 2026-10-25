@@ -58,6 +58,8 @@ async function migrate() {
     await query("ALTER TABLE payments MODIFY payment_type ENUM('pix','pix_asaas','pix_mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL");
     await add('sales', 'mp_charge_id', 'INT NULL');
     await query(fs.readFileSync(path.join(__dirname, '../sql/mercadopago.sql'), 'utf8'));
+    // Cobranças anteriores mantêm seu contrato de Payments e seus corpos/chaves originais.
+    await add('mp_charges', 'api_version', "VARCHAR(10) NOT NULL DEFAULT 'payments'");
     await add('payments', 'external_id', 'VARCHAR(255) NULL');
     await add('sales_products', 'unit_price', 'DECIMAL(12,2) NULL');
     await query('UPDATE sales_products sp JOIN products p ON p.id = sp.product_id SET sp.unit_price = p.value WHERE sp.unit_price IS NULL');
@@ -69,6 +71,7 @@ async function migrate() {
     await query('CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(100) PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
     await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_schema_payments')");
     await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_mercadopago_payouts')");
+    await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_mercadopago_orders')");
     console.log('Schema atualizado; dados existentes preservados.');
   } finally {
     await query("SELECT RELEASE_LOCK('agendaspro_schema')").catch(() => {});

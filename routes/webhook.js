@@ -6,8 +6,8 @@ const webhookAuth = require('../middleware/webhookAuth');
 
 router.post('/mercadopago', async (req, res) => {
     if (!require('../utils/mercadoPago').verifySignature(req, process.env.MP_WEBHOOK_SECRET)) return res.status(401).json({ message: 'Assinatura inválida.' });
-    if (req.body.type !== 'payment') return res.json({ ignored: true });
-    try { res.json(await require('../services/mercadoPagoPaymentsService').paymentNotification(req.query['data.id'])); }
+    if (!['payment', 'order'].includes(req.body.type)) return res.json({ ignored: true });
+    try { res.json(await require('../services/mercadoPagoPaymentsService').paymentNotification(req.query['data.id'], req.body.type)); }
     catch { res.status(503).json({ message: 'Não foi possível reconciliar o pagamento.' }); }
 });
 router.post('/mercadopago/payouts', async (req, res) => {

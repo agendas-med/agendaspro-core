@@ -26,22 +26,47 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
     pool = require('../mysql').pool;
     const sql = functions.executeSql.bind(functions);
     const remotePayments = new Map(), remotePayouts = new Map(), paymentKeys = new Map(), payoutKeys = new Map();
-    let paymentPosts = 0, payoutPosts = 0, dropPaymentResponse = false, dropPayoutResponse = false;
+    let paymentPosts = 0, payoutPosts = 0, dropPaymentResponse = false, dropPayoutResponse = false, asyncOrderResponse = false;
+    let accountTags = ['test_user'];
+    const orderResponse = payment => {
+      const status = { approved: 'processed', pending: 'action_required', cancelled: 'canceled', refunded: 'refunded' }[payment.status];
+      const detail = payment.status === 'approved' ? 'accredited' : 'waiting_transfer';
+      return { id: payment.id, user_id: String(payment.collector_id), country_code: 'BRA', type: 'online', processing_mode: 'automatic',
+        total_amount: String(payment.transaction_amount), total_paid_amount: payment.status === 'approved' ? String(payment.transaction_amount) : '0',
+        external_reference: payment.external_reference, status, status_detail: detail,
+        transactions: { payments: [{ id: `PAY${payment.id.slice(3)}`, amount: String(payment.transaction_amount), status, status_detail: detail,
+          date_of_expiration: '2027-12-31T10:00:00Z', payment_method: { id: 'pix', type: 'bank_transfer', ...payment.point_of_interaction.transaction_data } }],
+          refunds: payment.transaction_amount_refunded ? [{ amount: String(payment.transaction_amount_refunded) }] : [] } };
+    };
     provider = await listen(http.createServer(async (req, res) => {
       try {
         const chunks = []; for await (const chunk of req) chunks.push(chunk);
         const raw = Buffer.concat(chunks).toString(); const body = raw ? JSON.parse(raw) : null;
         assert.equal(req.headers.authorization, 'Bearer local-fixture-only');
         res.setHeader('Content-Type', 'application/json');
-        if (req.method === 'POST' && req.url === '/v1/payments') {
+        if (req.url === '/users/me') { res.end(JSON.stringify({ id: 123, site_id: 'MLB', tags: accountTags })); return; }
+        if (req.url === '/v1/account/bank_report/list') { res.end(JSON.stringify([{ user_id: 123, file_name: 'bank-report-123.csv', date_created: '2026-10-24' }])); return; }
+        if (req.url === '/v1/account/bank_report/bank-report-123.csv') {
+          res.setHeader('Content-Type', 'text/csv');
+          const rows = [...remotePayments.values()].filter(payment => payment.status === 'approved' && payment.money_release_status === 'released')
+            .map(payment => `${payment.id};${payment.external_reference};release;payment;${payment.transaction_details.net_received_amount};0;${payment.transaction_amount};BRL;pix`);
+          res.end(['ORDER_MP;EXTERNAL_REFERENCE;RECORD_TYPE;DESCRIPTION;NET_CREDIT_AMOUNT;NET_DEBIT_AMOUNT;GROSS_AMOUNT;CURRENCY;PAYMENT_METHOD', ...rows].join('\n')); return;
+        }
+        if (req.method === 'POST' && ['/v1/orders', '/v1/payments'].includes(req.url)) {
+          const legacy = req.url === '/v1/payments';
+          if (!legacy) {
+            assert.equal(typeof body.total_amount, 'string'); assert.equal(body.type, 'online'); assert.equal(body.processing_mode, 'automatic');
+            assert.equal(body.transactions.payments[0].payment_method.id, 'pix'); assert.equal(body.transactions.payments[0].amount, body.total_amount);
+            assert.equal(body.notification_url, undefined);
+          }
           paymentPosts++;
           const key = req.headers['x-idempotency-key'];
           const [durable] = await sql('SELECT request_body FROM mp_charges WHERE idempotency_key = ?', [key]);
           assert.equal(durable.request_body, raw, 'Intenção deve estar commitada antes do envio.');
           let payment = paymentKeys.get(key);
           if (!payment) {
-            payment = { id: String(900000 + paymentKeys.size), collector_id: 123, live_mode: false,
-              currency_id: 'BRL', payment_method_id: 'pix', transaction_amount: body.transaction_amount,
+            payment = { id: (legacy ? '' : 'ORD') + String(900000 + paymentKeys.size), collector_id: 123, live_mode: false,
+              currency_id: 'BRL', payment_method_id: 'pix', transaction_amount: legacy ? body.transaction_amount : Number(body.total_amount),
               transaction_amount_refunded: 0, external_reference: body.external_reference, status: 'pending',
               date_of_expiration: body.date_of_expiration,
               money_release_status: 'pending', transaction_details: { net_received_amount: 99.01 },
@@ -49,13 +74,19 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
             paymentKeys.set(key, payment); remotePayments.set(payment.id, payment);
           }
           if (dropPaymentResponse) { dropPaymentResponse = false; req.socket.destroy(); return; }
-          res.end(JSON.stringify(payment)); return;
+          if (asyncOrderResponse) {
+            asyncOrderResponse = false;
+            const response = orderResponse(payment); response.status = 'processing'; response.transactions = {};
+            res.end(JSON.stringify(response)); return;
+          }
+          res.end(JSON.stringify(legacy ? payment : orderResponse(payment))); return;
         }
-        const paymentId = req.url.match(/^\/v1\/payments\/(\d+)$/)?.[1];
+        const paymentId = req.url.match(/^\/v1\/orders\/(ORD\d+)(?:\/cancel)?$/)?.[1] || req.url.match(/^\/v1\/payments\/(\d+)$/)?.[1];
         if (paymentId) {
           const payment = remotePayments.get(paymentId); assert.ok(payment);
           if (req.method === 'PUT') payment.status = body.status;
-          res.end(JSON.stringify(payment)); return;
+          if (req.method === 'POST') { assert.ok(req.headers['x-idempotency-key']); payment.status = 'cancelled'; }
+          res.end(JSON.stringify(paymentId.startsWith('ORD') ? orderResponse(payment) : payment)); return;
         }
         if (req.method === 'POST' && req.url === '/v1/payouts') {
           payoutPosts++;
@@ -106,8 +137,8 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
     const input = saleId => ({ sale_id: saleId, customer_id: customer.id, amount: 100, payment_type: 'pix_mercadopago' });
     const destination = { holder_name: 'Titular Teste', holder_document: '52998224725', pix_key_type: 'CPF', pix_key: '52998224725' };
     const signed = (paymentId, bodyId = paymentId) => {
-      const digest = crypto.createHmac('sha256', process.env.MP_WEBHOOK_SECRET).update(`id:${paymentId};request-id:request-1;ts:1781009491;`).digest('hex');
-      return request('POST', `/webhook/mercadopago?data.id=${paymentId}`, { type: 'payment', data: { id: bodyId } }, bodyId === paymentId ? 200 : 401,
+      const digest = crypto.createHmac('sha256', process.env.MP_WEBHOOK_SECRET).update(`id:${paymentId.toLowerCase()};request-id:request-1;ts:1781009491;`).digest('hex');
+      return request('POST', `/webhook/mercadopago?data.id=${paymentId}`, { type: 'order', data: { id: bodyId } }, bodyId === paymentId ? 200 : 401,
         { 'x-request-id': 'request-1', 'x-signature': `ts=1781009491,v1=${digest}` });
     };
     let saleId, charge, payoutId;
@@ -146,14 +177,18 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
       remote.transaction_amount = 100;
       await Promise.all([signed(remote.id), signed(remote.id)]);
       const [count] = await sql('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [saleId]); assert.equal(count.total, 1);
+      assert.equal((await request('GET', '/payments/mercadopago/payouts')).length, 0, 'Aprovação não informa líquido nem liberação na Orders API.');
+      remote.money_release_status = 'released';
+      await signed(remote.id);
       const payouts = await request('GET', '/payments/mercadopago/payouts'); assert.equal(payouts.length, 1);
       assert.equal(payouts[0].commission, 5); assert.equal(payouts[0].provider_fee, 0.99); assert.equal(payouts[0].amount, 94.01);
       payoutId = payouts[0].id;
       assert.equal((await request('GET', `/sales/${saleId}`)).returnObj.status, 'realizada');
     });
     await t.test('envio bloqueado sem saldo liberado/permissão; destino é congelado e crédito exige reconciliação', async () => {
+      const remote = remotePayments.get(charge.pix.paymentId); remote.money_release_status = 'pending';
       await request('POST', `/payments/mercadopago/payouts/${payoutId}/submit`, {}, 400);
-      const remote = remotePayments.get(charge.pix.paymentId); remote.money_release_status = 'released';
+      remote.money_release_status = 'released';
       await request('POST', `/payments/mercadopago/payouts/${payoutId}/submit`, {}, 400);
       assert.equal(payoutPosts, 0);
       process.env.MP_PAYOUTS_ENABLED = 'true';
@@ -193,6 +228,34 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
       await signed(remote.id);
       assert.equal((await request('GET', '/payments/mercadopago/payouts')).find(p => p.id === payoutId).status, 'needs_review');
       assert.equal((await request('POST', `/payments/mercadopago/payouts/${payoutId}/reconcile`, {})).status, 'needs_review');
+    });
+    await t.test('Orders assíncrona recupera o QR sem criar uma segunda cobrança', async () => {
+      const sale = await newSale(); const key = crypto.randomUUID(); asyncOrderResponse = true;
+      const created = await request('POST', '/payments/mercadopago/charges', input(sale), 200, { 'Idempotency-Key': key });
+      assert.equal(created.api, 'orders'); assert.equal(created.pix.payload, null);
+      await request('POST', `/payments/mercadopago/charges/${created.id}/reconcile`, {});
+      const restored = await request('GET', `/payments/mercadopago/charges/${created.id}`);
+      assert.equal(restored.pix.payload, 'test-pix');
+    });
+    await t.test('cobrança antiga preserva API, chave e corpo de Payments após a migração', async () => {
+      const sale = await newSale(); const key = crypto.randomUUID();
+      const reference = `LEGACY_${crypto.randomUUID()}`;
+      const body = JSON.stringify({ transaction_amount: 100, external_reference: reference, payment_method_id: 'pix', payer: { email: 'payer@example.com' } });
+      const id = (await sql(`INSERT INTO mp_charges (company_id, sale_id, customer_id, environment, api_version, external_reference, idempotency_key,
+        request_body, amount_cents, commission_bps) VALUES (?, ?, ?, 'test', 'payments', ?, ?, ?, 10000, 500)`, [companyId, sale, customer.id, reference, key, body])).insertId;
+      await sql('UPDATE sales SET mp_charge_id = ? WHERE id = ?', [id, sale]);
+      const recovered = await request('POST', '/payments/mercadopago/charges', input(sale), 200, { 'Idempotency-Key': key });
+      assert.equal(recovered.api, 'payments'); assert.match(recovered.pix.paymentId, /^\d+$/);
+      await request('POST', '/sales/cancel_pix', { sale_id: sale });
+    });
+    await t.test('conta real com MP_ENV=test bloqueia Orders antes de enviar uma cobrança', async () => {
+      const sale = await newSale(); const key = crypto.randomUUID(); const posts = paymentPosts;
+      accountTags = [];
+      await request('POST', '/payments/mercadopago/charges', input(sale), 400, { 'Idempotency-Key': key });
+      assert.equal(paymentPosts, posts);
+      accountTags = ['test_user'];
+      await request('POST', '/payments/mercadopago/charges', input(sale), 200, { 'Idempotency-Key': key });
+      assert.equal(paymentPosts, posts + 1);
     });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
