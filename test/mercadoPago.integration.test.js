@@ -80,6 +80,7 @@ test(
             const seller =
               req.headers.authorization?.includes("seller-fixture");
             if (path === "/oauth/token") {
+              assert.equal(body.test_token, "true");
               if (body.grant_type === "authorization_code") {
                 assert.equal(typeof body.code_verifier, "string");
                 assert.equal(body.client_id, "999");

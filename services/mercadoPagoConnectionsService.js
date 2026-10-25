@@ -108,6 +108,7 @@ const service = {
       code,
       redirect_uri: settings.redirectUri,
       code_verifier: tokens.decrypt(intent.verifier),
+      test_token: String(settings.environment === "test"),
     });
     if (
       !response.access_token ||
@@ -183,6 +184,7 @@ const service = {
         const settings = oauthConfig();
         const response = await gateway.request("POST", "/oauth/token", {
           grant_type: "refresh_token",
+          test_token: String(settings.environment === "test"),
           client_id: settings.clientId,
           client_secret: settings.clientSecret,
           refresh_token: tokens.decrypt(row.refresh_token),
