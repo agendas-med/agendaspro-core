@@ -19,13 +19,14 @@ let schema = {
             'number.integer': errors.integer.integer()
         }),
         products: Joi.array().items(
-            products.create.append({
-                quantity: Joi.number().integer().required().messages({
+            products.create.fork(['name', 'value', 'cost'], field => field.optional()).append({
+                id: Joi.number().integer().min(1).required(),
+                quantity: Joi.number().integer().min(1).required().messages({
                     'number.base': errors.integer.base(),
                     'number.integer': errors.integer.integer(),
                     'any.required': errors.string.empty()
                 }),
-                available_quantity: Joi.number().integer().required().messages({
+                available_quantity: Joi.number().integer().optional().messages({
                     'number.base': errors.integer.base(),
                     'number.integer': errors.integer.integer(),
                     'any.required': errors.string.empty()

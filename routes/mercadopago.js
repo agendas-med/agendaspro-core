@@ -23,6 +23,7 @@ router.param('id', (req, res, next, id) => {
   next();
 });
 router.get('/status', handle(async (req, res) => res.json(await payments.status(req.headers['selected-company']))));
+router.get('/charges', handle(async (req, res) => res.json(await payments.listCharges(req.headers['selected-company']))));
 router.put('/destination', admin, handle(async (req, res) => res.json(await payments.saveDestination(req.headers['selected-company'], req.usuario.id, req.body))));
 router.post('/charges', validate.validateRequest(validate.schemas.payments.create), handle(async (req, res) => {
   if (req.body.payment_type !== 'pix_mercadopago') return res.status(400).json({ message: 'Use payment_type pix_mercadopago.' });

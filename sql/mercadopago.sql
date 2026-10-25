@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS mp_destinations (
   company_id INT NOT NULL PRIMARY KEY,
   holder_name VARCHAR(150) NOT NULL,
   holder_document VARCHAR(14) NOT NULL,
+  bank_name VARCHAR(100) NULL,
   pix_key_type VARCHAR(10) NOT NULL,
   pix_key VARCHAR(255) NOT NULL,
   updated_by INT NOT NULL,

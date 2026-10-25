@@ -135,7 +135,7 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
     const productId = (await sql("INSERT INTO products (name, value, cost, current_stock, company_id, unit_of_measure) VALUES ('Serviço Pix', 100, 0, 50, ?, ?)", [companyId, unit.id])).insertId;
     const newSale = () => require('../services/salesService').create(companyId, customer.id, null, [{ id: productId, quantity: 1 }]);
     const input = saleId => ({ sale_id: saleId, customer_id: customer.id, amount: 100, payment_type: 'pix_mercadopago' });
-    const destination = { holder_name: 'Titular Teste', holder_document: '52998224725', pix_key_type: 'CPF', pix_key: '52998224725' };
+    const destination = { holder_name: 'Titular Teste', holder_document: '52998224725', bank_name: 'Banco Sandbox', pix_key_type: 'CPF', pix_key: '52998224725' };
     const signed = (paymentId, bodyId = paymentId) => {
       const digest = crypto.createHmac('sha256', process.env.MP_WEBHOOK_SECRET).update(`id:${paymentId.toLowerCase()};request-id:request-1;ts:1781009491;`).digest('hex');
       return request('POST', `/webhook/mercadopago?data.id=${paymentId}`, { type: 'order', data: { id: bodyId } }, bodyId === paymentId ? 200 : 401,
@@ -148,12 +148,43 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
       await request('PUT', '/payments/mercadopago/destination', destination);
       const status = await request('GET', '/payments/mercadopago/status');
       assert.equal(status.destination.pix_key_masked, '***4725');
+      assert.equal(status.destination.bank_name, 'Banco Sandbox');
+      assert.equal(status.destination.pix_key, undefined);
+      const { pix_key: omittedKey, ...withoutKey } = destination;
+      await request('PUT', '/payments/mercadopago/destination', { ...withoutKey, bank_name: 'Banco atualizado' });
+      assert.equal((await sql('SELECT pix_key FROM mp_destinations WHERE company_id = ?', [companyId]))[0].pix_key, omittedKey);
+      await request('PUT', '/payments/mercadopago/destination', { ...withoutKey, pix_key_type: 'EMAIL' }, 400);
       assert.equal(JSON.stringify(status).includes('local-fixture-only'), false);
       const role = (await sql("INSERT INTO config_company_roles (company_id, name, permission, default_role) VALUES (?, 'Leitura', 0, 0)", [companyId])).insertId;
       const [assigned] = await sql('SELECT role_id FROM config_users_roles WHERE user_id = ?', [registration.returnObj.id]);
       await sql('UPDATE config_users_roles SET role_id = ? WHERE user_id = ?', [role, registration.returnObj.id]);
       await request('PUT', '/payments/mercadopago/destination', destination, 403);
       await sql('UPDATE config_users_roles SET role_id = ? WHERE user_id = ?', [assigned.role_id, registration.returnObj.id]);
+    });
+    await t.test('venda aceita ID e quantidade e mantém o preço do banco mesmo se o navegador enviar outro valor', async () => {
+      const body = { company_id: companyId, customer_id: customer.id, appointment_id: null, status: 'em_aberto', products: [{ id: productId, quantity: 1 }] };
+      const created = await request('POST', '/sales', body);
+      await request('PATCH', `/sales/${created.returnObj.id}`, { ...body, products: [{ id: productId, quantity: 1, value: 0.01 }] });
+      const result = (await request('GET', `/sales/${created.returnObj.id}`)).returnObj;
+      assert.equal(result.total, 100);
+      assert.equal(Number(result.products[0].value), 100);
+    });
+    await t.test('financeiro soma serviço e produto e atualiza o saldo a cada pagamento parcial', async () => {
+      const serviceId = (await sql("INSERT INTO services (name, value, cost, duration, company_id) VALUES ('Atendimento financeiro', 30, 10, 30, ?)", [companyId])).insertId;
+      const appointmentId = await require('../services/appointmentsService').create(companyId, customer.id, 'Cliente MP', '2027-08-01 10:00:00', 30, '', [{ id: serviceId, quantity: 1 }], 'pendente_pagamento');
+      const [sale] = await sql('SELECT id FROM sales WHERE appointment_id = ? AND company_id = ?', [appointmentId, companyId]);
+      await request('PATCH', `/sales/${sale.id}`, { company_id: companyId, customer_id: customer.id, appointment_id: appointmentId, status: 'em_aberto', products: [{ id: productId, quantity: 1 }] });
+      const financial = async () => (await request('GET', '/financial')).returnObj.find(row => row.sale_id === sale.id);
+      assert.equal((await financial()).value, 130);
+      await request('POST', '/sales/insert_payment', { sale_id: sale.id, customer_id: customer.id, amount: 30, payment_type: 'dinheiro' });
+      assert.equal((await financial()).remaining, 100);
+      assert.equal((await financial()).status, 'Em Aberto');
+      await request('POST', '/sales/insert_payment', { sale_id: sale.id, customer_id: customer.id, amount: 100, payment_type: 'dinheiro' });
+      const received = await financial();
+      assert.equal(received.value, 130);
+      assert.equal(received.total_paid, 130);
+      assert.equal(received.remaining, 0);
+      assert.equal(received.status, 'Pago');
     });
     await t.test('criação concorrente e reentrega usam uma cobrança; venda pendente não aceita pagamento manual', async () => {
       saleId = await newSale(); const key = crypto.randomUUID();
@@ -165,6 +196,10 @@ test('Mercado Pago: HTTP, MariaDB e provedor HTTP isolados', { skip: !process.en
       await request('POST', '/sales/insert_payment', { ...input(saleId), payment_type: 'dinheiro' }, 400);
       await request('DELETE', `/sales/${saleId}`, undefined, 400);
       await request('GET', `/payments/mercadopago/charges/${charge.id}`, undefined, 403, { 'Selected-company': '999999' });
+      await request('GET', '/payments/mercadopago/charges', undefined, 403, { 'Selected-company': '999999' });
+      const listed = await request('GET', '/payments/mercadopago/charges');
+      assert.equal(listed[0].sale_id, saleId);
+      assert.equal(listed[0].request_body, undefined);
     });
     await t.test('webhook confere assinatura, conta e valor; confirmação repetida cria um pagamento e um repasse', async () => {
       await request('POST', `/webhook/mercadopago?data.id=${charge.pix.paymentId}`, { type: 'payment', data: { id: charge.pix.paymentId } }, 401);

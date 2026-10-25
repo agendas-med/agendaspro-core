@@ -26,6 +26,7 @@ function destination(input) {
   const { error, value } = Joi.object({
     holder_name: Joi.string().trim().min(3).max(150).required(),
     holder_document: Joi.string().replace(/\D/g, '').required(),
+    bank_name: Joi.string().trim().max(100).allow('', null).default(null),
     pix_key_type: Joi.string().valid('CPF', 'CNPJ', 'EMAIL', 'PHONE', 'PIX_CODE').required(),
     pix_key: Joi.string().trim().max(255).required(),
   }).validate(input);

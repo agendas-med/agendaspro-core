@@ -52,24 +52,39 @@ async function preparePayout(query, charge, payment) {
 
 const service = {
   async saveDestination(companyId, userId, input) {
-    const data = rules.destination(input);
     return functions.executeTransaction(async query => {
       const [company] = await query('SELECT document FROM companies WHERE id = ? FOR UPDATE', [companyId]);
+      const [existing] = await query('SELECT pix_key, pix_key_type FROM mp_destinations WHERE company_id = ? FOR UPDATE', [companyId]);
+      if (!input.pix_key && existing && input.pix_key_type !== existing.pix_key_type) throw new Error('Informe a nova chave Pix ao alterar o tipo.');
+      const data = rules.destination({ ...input, pix_key: input.pix_key || existing?.pix_key });
       if (!company || String(company.document || '').replace(/\D/g, '') !== data.holder_document) throw new Error('O titular deve ser o CPF/CNPJ cadastrado na empresa.');
-      await query(`INSERT INTO mp_destinations (company_id, holder_name, holder_document, pix_key_type, pix_key, updated_by)
-        VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE holder_name = VALUES(holder_name), holder_document = VALUES(holder_document),
-        pix_key_type = VALUES(pix_key_type), pix_key = VALUES(pix_key), updated_by = VALUES(updated_by)`,
-      [companyId, data.holder_name, data.holder_document, data.pix_key_type, data.pix_key, userId]);
+      await query(`INSERT INTO mp_destinations (company_id, holder_name, holder_document, bank_name, pix_key_type, pix_key, updated_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE holder_name = VALUES(holder_name), holder_document = VALUES(holder_document),
+        bank_name = VALUES(bank_name), pix_key_type = VALUES(pix_key_type), pix_key = VALUES(pix_key), updated_by = VALUES(updated_by)`,
+      [companyId, data.holder_name, data.holder_document, data.bank_name, data.pix_key_type, data.pix_key, userId]);
       return { configured: true, pix_key_type: data.pix_key_type, pix_key_masked: `***${data.pix_key.slice(-4)}` };
     });
   },
   async status(companyId) {
     const settings = config.settings();
-    const [destination] = await functions.executeSql('SELECT holder_name, pix_key_type, RIGHT(pix_key, 4) AS suffix FROM mp_destinations WHERE company_id = ?', [companyId]);
+    const [company] = await functions.executeSql('SELECT name, document FROM companies WHERE id = ?', [companyId]);
+    const [destination] = await functions.executeSql('SELECT holder_name, bank_name, pix_key_type, updated_at, RIGHT(pix_key, 4) AS suffix FROM mp_destinations WHERE company_id = ?', [companyId]);
     return { provider: config.provider(), environment: settings.environment,
+      company: { name: company?.name || '', document: company?.document || '' },
       configured: Boolean(settings.accessToken && settings.collectorId && settings.webhookSecret && settings.webhookUrl),
       payouts_enabled: settings.payoutsEnabled, commission_bps: settings.commissionBps,
-      destination: destination ? { holder_name: destination.holder_name, pix_key_type: destination.pix_key_type, pix_key_masked: `***${destination.suffix}` } : null };
+      destination: destination ? { holder_name: destination.holder_name, bank_name: destination.bank_name, pix_key_type: destination.pix_key_type,
+        updated_at: destination.updated_at, pix_key_masked: `***${destination.suffix}` } : null };
+  },
+  async listCharges(companyId) {
+    const rows = await functions.executeSql(`SELECT c.*, customer.name AS customer_name, p.status AS payout_status,
+      p.amount_cents AS payout_amount_cents FROM mp_charges c JOIN customers customer ON customer.id = c.customer_id
+      LEFT JOIN mp_payouts p ON p.charge_id = c.id WHERE c.company_id = ? AND c.environment = ? ORDER BY c.id DESC LIMIT 100`,
+    [companyId, config.settings().environment]);
+    return rows.map(row => ({ id: row.id, sale_id: row.sale_id, customer_name: row.customer_name, status: row.status,
+      amount: Number(row.amount_cents) / 100, created_at: row.created_at,
+      commission: Math.round(Number(row.amount_cents) * row.commission_bps / 10000) / 100,
+      payout_status: row.payout_status || null, payout_amount: row.payout_amount_cents == null ? null : Number(row.payout_amount_cents) / 100 }));
   },
   async getCharge(companyId, chargeId) {
     const [charge] = await functions.executeSql('SELECT * FROM mp_charges WHERE id = ? AND company_id = ?', [chargeId, companyId]);
@@ -151,10 +166,10 @@ const service = {
       const [current] = await query('SELECT * FROM mp_charges WHERE id = ? FOR UPDATE', [chargeId]);
       await query('UPDATE mp_charges SET status = ? WHERE id = ?', [payment.status, chargeId]);
       const pix = payment.point_of_interaction?.transaction_data || {};
-      if (pix.qr_code && pix.qr_code_base64) {
+      if (pix.qr_code) {
         await query('UPDATE mp_charges SET pix_payload = ?, pix_encoded_image = ?, pix_expiration_date = ?, payment_url = ? WHERE id = ?',
-          [pix.qr_code, pix.qr_code_base64, payment.date_of_expiration || null, pix.ticket_url || null, chargeId]);
-        if (sale.mp_charge_id === chargeId) await query('UPDATE sales SET pix_payload = ?, pix_encoded_image = ? WHERE id = ?', [pix.qr_code, pix.qr_code_base64, sale.id]);
+          [pix.qr_code, pix.qr_code_base64 || null, payment.date_of_expiration || null, pix.ticket_url || null, chargeId]);
+        if (sale.mp_charge_id === chargeId) await query('UPDATE sales SET pix_payload = ?, pix_encoded_image = ? WHERE id = ?', [pix.qr_code, pix.qr_code_base64 || null, sale.id]);
       }
       if (payment.status === 'approved' && rules.cents(payment.transaction_amount_refunded || 0) === 0) {
         const externalId = `mp:${payment.id}`;

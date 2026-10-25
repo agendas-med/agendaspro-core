@@ -29,13 +29,18 @@ Configure a geração do relatório de **Liberações** no Mercado Pago, em CSV,
 
 Execute `npm run payments:check` para consultar `/users/me` e obter o ID a preencher em `MP_COLLECTOR_ID`. Confira `site_id=MLB` e `account_is_test=true` no sandbox: o back bloqueia uma conta real quando `MP_ENV=test`. Siga a configuração atual de contas/credenciais de teste do painel Orders; o prefixo do token, sozinho, não identifica o ambiente. Essa consulta não libera nem comprova permissão de Payouts. Execute `npm run db:migrate` e reinicie o servidor após configurar o ambiente. A conta central precisa ter Pix habilitado para gerar cobranças.
 
-O front em `dev` continua com o formulário Asaas anterior. Os endpoints abaixo permitem homologar o novo back pelo Postman, Insomnia ou outro cliente HTTP. O WhatsApp usa Mercado Pago quando o provedor selecionado é `mercadopago` e o recebimento online está configurado.
+O front na branch `feature/mercado-pago-payouts` integra este fluxo. Depois de criar a empresa, o usuário segue para **Configurações → Recebimentos**. O card de conta bancária abre um modal com banco (opcional), titular, documento da empresa e chave Pix. A edição pode manter a chave anterior sem expô-la: deixe a chave em branco e mantenha o tipo. Somente administradores alteram o destino.
+
+Na venda, **Receber pagamento → Pix online · Mercado Pago** salva os itens, consulta o total calculado pelo backend e gera a cobrança. O navegador conserva a chave de idempotência para retomar uma tentativa incerta. A confirmação automática apenas consulta a venda local; o registro do recebimento é feito pelo webhook autenticado. O botão **Verificar pagamento** oferece a reconciliação manual e **Cancelar cobrança Pix** solicita o cancelamento ao provedor. O QR também é gerado no próprio navegador a partir do código Pix quando o provedor não fornece a imagem.
+
+O painel de recebimentos mostra os pagamentos e a situação do repasse. O financeiro considera serviços, produtos e pagamentos parciais da venda, sem multiplicar valores entre itens e pagamentos. O WhatsApp usa Mercado Pago quando o provedor selecionado é `mercadopago` e o recebimento online está configurado. Os endpoints abaixo também permitem homologação pelo Postman ou outro cliente HTTP.
 
 ## Roteiro HTTP
 
 Use `Authorization: Bearer <JWT do AgendasPro>` e `Selected-company: <ID da empresa>` nos endpoints `/payments/mercadopago`. Webhooks não usam o JWT do usuário. Administradores podem configurar o destino e enviar repasses; membros só consultam ou cobram as vendas da própria empresa.
 
 1. `GET /payments/mercadopago/status`: confira ambiente, configuração, comissão e destino mascarado.
+   `GET /payments/mercadopago/charges`: lista os recebimentos da empresa no ambiente atual, sem tokens, corpos de requisição ou chave Pix completa.
 2. `PUT /payments/mercadopago/destination`: cadastre um destino. O documento deve coincidir com o CPF/CNPJ da empresa; os tipos de chave aceitos são `CPF`, `CNPJ`, `EMAIL`, `PHONE` (formato `+5511999999999`) e `PIX_CODE` (UUID). A titularidade das chaves de e-mail/telefone/aleatória precisa ser conferida no onboarding; a validação local de formato não consulta o DICT.
 
 ```json
