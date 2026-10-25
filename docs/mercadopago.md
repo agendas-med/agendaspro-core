@@ -15,7 +15,7 @@ A assinatura Premium é uma cobrança recorrente separada na conta central do Ag
 
 ## Configuração
 
-1. Na aplicação Mercado Pago, selecione Checkout Pro e modelo Marketplace quando essa opção estiver disponível. Permita leitura, escrita e acesso offline. Ative PKCE.
+1. Na aplicação Mercado Pago, selecione **Checkout Pro → API de Preferences (Preferências)** e modelo Marketplace quando essa opção estiver disponível. Selecionar apenas Checkout Pro pode manter a API de Orders da configuração anterior; confira o tipo de API após salvar e recarregar o painel. Permita leitura, escrita e acesso offline. Ative PKCE.
 2. Cadastre a Redirect URL **exatamente** como `MP_OAUTH_REDIRECT_URI`. Para o teste local atual:
    `https://reclining-banknote-clumsily.ngrok-free.dev/payments/mercadopago/oauth/callback`.
 3. Preencha no `.env`, sem publicar segredos:
