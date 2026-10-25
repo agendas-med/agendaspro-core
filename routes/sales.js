@@ -31,7 +31,7 @@ router.delete('/:id', handle(async (req, res) => {
   res.json(functions.createResponse('Venda excluída com sucesso', null, 'DELETE', 200));
 }));
 router.post('/insert_payment', validate.validateRequest(validate.schemas.payments.create), handle(async (req, res) => {
-  res.json(await payments.insert(req.headers['selected-company'], req.body));
+  res.json(await payments.insert(req.headers['selected-company'], req.body, { idempotencyKey: req.headers['idempotency-key'] }));
 }));
 router.post('/cancel_pix', handle(async (req, res) => {
   if (!Number.isInteger(Number(req.body.sale_id)) || Number(req.body.sale_id) < 1) return res.status(400).send('Venda inválida.');

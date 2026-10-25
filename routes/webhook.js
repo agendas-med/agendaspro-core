@@ -4,6 +4,17 @@ const _openaiService = require('../services/openaiService');
 const functions = require('../utils/functions');
 const webhookAuth = require('../middleware/webhookAuth');
 
+router.post('/mercadopago', async (req, res) => {
+    if (!require('../utils/mercadoPago').verifySignature(req, process.env.MP_WEBHOOK_SECRET)) return res.status(401).json({ message: 'Assinatura inválida.' });
+    if (req.body.type !== 'payment') return res.json({ ignored: true });
+    try { res.json(await require('../services/mercadoPagoPaymentsService').paymentNotification(req.query['data.id'])); }
+    catch { res.status(503).json({ message: 'Não foi possível reconciliar o pagamento.' }); }
+});
+router.post('/mercadopago/payouts', async (req, res) => {
+    try { res.json(await require('../services/mercadoPagoPaymentsService').payoutNotification(req.body.payout?.id, req.body.id)); }
+    catch { res.status(503).json({ message: 'Não foi possível reconciliar o repasse.' }); }
+});
+
 router.post("/whatsapp", webhookAuth, async (req, res) => {
     try {
         const { phone, message } = req.body;

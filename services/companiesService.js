@@ -236,11 +236,11 @@ let companiesService = {
 
         let apiKey, walletId, asaasStatus;
 
-        if (walletInfo.length > 0) {
+        if (walletInfo.length > 0 && require('../config/mercadopago').provider() === 'asaas') {
           apiKey = walletInfo[0].asaas_api_key;
           walletId = walletInfo[0].asaas_wallet_id;
           asaasStatus = walletInfo[0].asaas_status || "PENDING";
-        } else if (process.env.ASAAS_API_KEY) {
+        } else if (process.env.ASAAS_API_KEY && require('../config/mercadopago').provider() === 'asaas') {
           const asaasAccount = await _asaasService.createSubaccount({
             name: data.name,
             email: data.email,
@@ -1398,6 +1398,7 @@ let companiesService = {
     });
   },
   checkAsaasStatus: async function (company_id) {
+    if (require('../config/mercadopago').provider() !== 'asaas') return { status: 'UNCONFIGURED', onboardingUrl: null, provider: 'mercadopago' };
     const companyData = await functions.executeSql(
       `SELECT asaas_api_key, asaas_status FROM companies WHERE id = ?`,
       [company_id],

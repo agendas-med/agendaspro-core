@@ -44,7 +44,7 @@ const salesService = {
     const linked = await query('SELECT * FROM sales WHERE company_id = ? AND appointment_id = ? FOR UPDATE', [companyId, appointmentId]);
     for (const sale of linked) {
       const [paid] = await query('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [sale.id]);
-      if (paid.total || sale.pix_asaas_id || sale.status === 'realizada') continue;
+      if (paid.total || sale.pix_asaas_id || sale.mp_charge_id || sale.status === 'realizada') continue;
       const items = await query('SELECT product_id AS id, quantity FROM sales_products WHERE sale_id = ?', [sale.id]);
       const status = canceled ? 'cancelada' : 'em_aberto';
       await replaceProducts(query, sale, items, status);
@@ -76,7 +76,7 @@ const salesService = {
     return functions.executeTransaction(async query => {
       const sale = await this.lockSale(query, id, companyId);
       if (sale.status === 'realizada') throw new Error('A venda já foi concluída.');
-      if (sale.pix_asaas_id) throw new Error('Cancele ou aguarde o pagamento do Pix antes de alterar a venda.');
+      if (sale.pix_asaas_id || sale.mp_charge_id) throw new Error('Cancele ou aguarde o pagamento do Pix antes de alterar a venda.');
       await validateLinks(query, companyId, customerId, appointmentId, id);
       const [paid] = await query('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [id]);
       if (paid.total) {
@@ -98,7 +98,7 @@ const salesService = {
       const sale = await this.lockSale(query, id, companyId);
       if (sale.appointment_id) throw new Error('Cancele o agendamento vinculado para manter o histórico da venda.');
       const [paid] = await query('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [id]);
-      if (paid.total || sale.pix_asaas_id) throw new Error('Venda com pagamento ou cobrança não pode ser excluída.');
+      if (paid.total || sale.pix_asaas_id || sale.mp_charge_id) throw new Error('Venda com pagamento ou cobrança não pode ser excluída.');
       await replaceProducts(query, sale, [], 'cancelada');
       await query('DELETE FROM sales WHERE id = ? AND company_id = ?', [id, companyId]);
     });

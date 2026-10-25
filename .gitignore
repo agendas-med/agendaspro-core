@@ -8,3 +8,5 @@ public/uploads/
 .local-access.md
 logs/
 .local-processes.json
+*.pem
+*.key

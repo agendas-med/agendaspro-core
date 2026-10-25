@@ -6,7 +6,7 @@ const cents = value => Math.round(Number(value) * 100);
 async function record(query, sale, amount, paymentType, externalId = null) {
   await query('INSERT INTO payments (company_id, sale_id, customer_id, amount, payment_type, external_id) VALUES (?, ?, ?, ?, ?, ?)',
     [sale.company_id, sale.id, sale.customer_id, amount, paymentType, externalId]);
-  if (externalId) await query("DELETE FROM accounts_receivable WHERE sale_id = ? AND payment_type = 'pix_asaas' AND status = 'EM ABERTO'", [sale.id]);
+  if (externalId) await query("DELETE FROM accounts_receivable WHERE sale_id = ? AND payment_type = ? AND status = 'EM ABERTO'", [sale.id, paymentType]);
   await query("INSERT INTO accounts_receivable (sale_id, customer_id, amount, payment_type, status, receive_date) VALUES (?, ?, ?, ?, 'recebido', NOW())", [sale.id, sale.customer_id, amount, paymentType]);
   const totals = await sales.totals(query, sale);
   if (cents(totals.total_paid) >= cents(totals.total)) {
@@ -15,12 +15,15 @@ async function record(query, sale, amount, paymentType, externalId = null) {
   }
 }
 const paymentsService = {
-  async insert(companyId, data) {
+  record,
+  async insert(companyId, data, options = {}) {
+    if (data.payment_type === 'pix_mercadopago') return require('./mercadoPagoPaymentsService').createCharge(companyId, data, options.idempotencyKey);
+    if (data.payment_type === 'pix_asaas' && require('../config/mercadopago').provider() !== 'asaas') throw new Error('Use pix_mercadopago nesta integração.');
     return functions.executeTransaction(async query => {
       const sale = await sales.lockSale(query, data.sale_id, companyId);
       if (sale.status !== 'em_aberto') throw new Error('A venda não está em aberto.');
       if (Number(data.customer_id) !== sale.customer_id) throw new Error('Cliente diferente do cliente da venda.');
-      if (sale.pix_asaas_id) throw new Error('Aguarde ou cancele a cobrança Pix existente.');
+      if (sale.pix_asaas_id || sale.mp_charge_id) throw new Error('Aguarde ou cancele a cobrança Pix existente.');
       const totals = await sales.totals(query, sale);
       const amount = Number(data.amount);
       if (!Number.isFinite(amount) || cents(amount) < 1 || cents(amount) > cents(totals.total) - cents(totals.total_paid)) throw new Error('Valor inválido ou superior ao saldo em aberto.');
@@ -45,6 +48,8 @@ const paymentsService = {
     });
   },
   async cancelPix(companyId, saleId) {
+    const [current] = await functions.executeSql('SELECT mp_charge_id FROM sales WHERE id = ? AND company_id = ?', [saleId, companyId]);
+    if (current?.mp_charge_id) return require('./mercadoPagoPaymentsService').cancelCharge(companyId, saleId);
     return functions.executeTransaction(async query => {
       const sale = await sales.lockSale(query, saleId, companyId);
       if (!sale.pix_asaas_id) return;

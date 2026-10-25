@@ -8,6 +8,8 @@
     "test:integration": "node --test test/integration.test.js",
     "db:migrate": "node scripts/migrate.js",
     "db:seed-demo": "node scripts/seed-demo.js",
+    "payments:reconcile": "node scripts/reconcile-payments.js",
+    "payments:check": "node scripts/check-mercadopago.js",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },

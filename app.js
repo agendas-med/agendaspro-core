@@ -8,6 +8,17 @@ if (process.env.ENABLE_REMINDERS !== 'false') cron.schedule('* * * * *', async (
     catch (error) { console.error('[Lembretes]', error.message); }
 });
 
+if (process.env.MP_AUTO_PAYOUTS === 'true') {
+    let running = false;
+    cron.schedule('* * * * *', async () => {
+        if (running) return;
+        running = true;
+        try { await require('./scripts/reconcile-payments')(); }
+        catch (error) { console.error('[Mercado Pago]', error.message); }
+        finally { running = false; }
+    });
+}
+
 
 const express = require('express');
 const app = express();
@@ -36,7 +47,7 @@ app.use((req, res, next) => {
     if (process.env.URL_SITE) res.header('Access-Control-Allow-Origin', process.env.URL_SITE);
     res.header(
         'Access-Control-Allow-Headers',
-        'Origin, X-Requested-With, Content-Type, Accept, Authorization, Selected-company'
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization, Selected-company, Idempotency-Key'
     );
 
     if (req.method == 'OPTIONS') {
@@ -63,6 +74,7 @@ app.use("/sales", salesRoute);
 app.use("/utils", utilsRoute);
 app.use("/stock", stockRoute);
 app.use("/webhook", webhookRoute);
+app.use('/payments/mercadopago', require('./routes/mercadopago'));
 
 app.use('/public', express.static('public'));
 

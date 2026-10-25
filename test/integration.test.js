@@ -17,6 +17,7 @@ test('fluxos reais no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_PASSWORD
     process.env.MYSQL_PASSWORD = process.env.MYSQL_ROOT_PASSWORD;
     process.env.ENABLE_REMINDERS = 'false';
     process.env.ASAAS_API_KEY = '';
+    process.env.PAYMENT_PROVIDER = 'asaas';
     process.env.JWT_KEY ||= 'integration-only-key';
     process.env.ASAAS_WEBHOOK_TOKEN ||= 'integration-webhook-token-32-characters';
     const migrate = require('../scripts/migrate');

@@ -55,7 +55,9 @@ async function migrate() {
     const foreignKeys = await query("SELECT 1 FROM information_schema.key_column_usage WHERE table_schema = DATABASE() AND table_name = 'accounts_receivable' AND column_name = 'sale_id' AND referenced_table_name = 'sales'");
     if (!foreignKeys.length) await query('ALTER TABLE accounts_receivable ADD CONSTRAINT fk_receivable_sale FOREIGN KEY (sale_id) REFERENCES sales(id) ON DELETE CASCADE');
     await query("ALTER TABLE whatsapp_sessions MODIFY status VARCHAR(50) DEFAULT 'active'");
-    await query("ALTER TABLE payments MODIFY payment_type ENUM('pix','pix_asaas','cartao_debito','cartao_credito','dinheiro') NOT NULL");
+    await query("ALTER TABLE payments MODIFY payment_type ENUM('pix','pix_asaas','pix_mercadopago','cartao_debito','cartao_credito','dinheiro') NOT NULL");
+    await add('sales', 'mp_charge_id', 'INT NULL');
+    await query(fs.readFileSync(path.join(__dirname, '../sql/mercadopago.sql'), 'utf8'));
     await add('payments', 'external_id', 'VARCHAR(255) NULL');
     await add('sales_products', 'unit_price', 'DECIMAL(12,2) NULL');
     await query('UPDATE sales_products sp JOIN products p ON p.id = sp.product_id SET sp.unit_price = p.value WHERE sp.unit_price IS NULL');
@@ -66,6 +68,7 @@ async function migrate() {
     await query(fs.readFileSync(path.join(__dirname, '../sql/reference-data.sql'), 'utf8'));
     await query('CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(100) PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
     await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_schema_payments')");
+    await query("INSERT IGNORE INTO schema_migrations(version) VALUES ('20261024_mercadopago_payouts')");
     console.log('Schema atualizado; dados existentes preservados.');
   } finally {
     await query("SELECT RELEASE_LOCK('agendaspro_schema')").catch(() => {});

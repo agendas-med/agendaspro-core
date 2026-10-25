@@ -313,6 +313,7 @@ router.get("/asaas_status", login, validate.validateCompanyAccess, (req, res, ne
 });
 
 router.get("/admin/sync_webhooks", async (req, res) => {
+    if (require('../config/mercadopago').provider() !== 'asaas') return res.status(400).json({ message: 'Integração Asaas desativada.' });
     try {
         const wallets = await functions.executeSql(`SELECT asaas_api_key FROM asaas_wallets WHERE asaas_api_key IS NOT NULL`);
         let sucessos = 0;

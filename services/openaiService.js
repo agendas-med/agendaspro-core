@@ -991,7 +991,7 @@ let openaiService = {
             (${relevanceCases.join(" + ")}) as relevance
             FROM services s
             INNER JOIN companies c ON s.company_id = c.id
-            WHERE c.asaas_status = 'APPROVED' AND (${orClauses.join(" OR ")})
+            WHERE ${require('../config/mercadopago').provider() === 'mercadopago' ? 'EXISTS (SELECT 1 FROM mp_destinations md WHERE md.company_id = c.id)' : "c.asaas_status = 'APPROVED'"} AND (${orClauses.join(" OR ")})
         `;
 
     if (city) {
@@ -1206,6 +1206,14 @@ let openaiService = {
           [newAppId],
         );
 
+        if (require('../config/mercadopago').provider() === 'mercadopago') {
+          const [sale] = await functions.executeSql('SELECT id FROM sales WHERE appointment_id = ? AND company_id = ?', [newAppId, company_id]);
+          const charge = await require('./mercadoPagoPaymentsService').createCharge(company_id,
+            { sale_id: sale.id, customer_id: customerId, amount: calculatedTotal }, require('node:crypto').randomUUID());
+          if (!charge.pix.url) throw new Error('Cobrança criada. Consulte o QR Code da venda para concluir o pagamento.');
+          return `PAGAMENTO_PENDENTE|${charge.pix.url}`;
+        }
+
         const companyData = await functions.executeSql(
           `SELECT asaas_api_key FROM companies WHERE id = ?`,
           [company_id],
@@ -1267,7 +1275,9 @@ let openaiService = {
       }
     } catch (error) {
       if (newAppId) {
-        await _appointmentsService.delete(newAppId, company_id);
+        const [linked] = await functions.executeSql('SELECT mp_charge_id FROM sales WHERE appointment_id = ? AND company_id = ?', [newAppId, company_id]);
+        // Uma tentativa incerta de cobrança precisa continuar vinculada para recuperação/cancelamento.
+        if (!linked?.mp_charge_id) await _appointmentsService.delete(newAppId, company_id);
       }
 
       const msgErro = error.message

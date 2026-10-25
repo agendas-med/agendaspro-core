@@ -59,7 +59,7 @@ const appointmentsService = {
       const state = transition(current, status);
       if (!state.canceled) await ensureSlot(query, companyId, date, duration, id);
       const [paid] = await query('SELECT COUNT(p.id) AS total FROM payments p JOIN sales s ON s.id = p.sale_id WHERE s.appointment_id = ?', [id]);
-      const [charged] = await query('SELECT COUNT(*) AS total FROM sales WHERE appointment_id = ? AND pix_asaas_id IS NOT NULL', [id]);
+      const [charged] = await query('SELECT COUNT(*) AS total FROM sales WHERE appointment_id = ? AND (pix_asaas_id IS NOT NULL OR mp_charge_id IS NOT NULL)', [id]);
       if (paid.total || charged.total) {
         const previous = await query('SELECT service_id AS id, quantity FROM appointment_services WHERE appointment_id = ? ORDER BY service_id', [id]);
         const sorted = [...items].sort((a, b) => a.id - b.id);
@@ -82,7 +82,7 @@ const appointmentsService = {
       if (!current) throw new Error('Agendamento não encontrado.');
       const [paid] = await query('SELECT COUNT(p.id) AS total FROM payments p JOIN sales s ON s.id = p.sale_id WHERE s.appointment_id = ?', [id]);
       if (paid.total) throw new Error('Agendamento com pagamentos não pode ser excluído. Cancele o atendimento.');
-      const [charged] = await query('SELECT COUNT(*) AS total FROM sales WHERE appointment_id = ? AND pix_asaas_id IS NOT NULL', [id]);
+      const [charged] = await query('SELECT COUNT(*) AS total FROM sales WHERE appointment_id = ? AND (pix_asaas_id IS NOT NULL OR mp_charge_id IS NOT NULL)', [id]);
       if (charged.total) throw new Error('Cancele a cobrança antes de excluir o agendamento.');
       await require('./salesService').setAppointmentCancellation(query, companyId, id, true);
       await query('DELETE FROM appointment_services WHERE appointment_id = ?', [id]);
