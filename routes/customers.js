@@ -38,7 +38,7 @@ router.patch("/:customer_id", login, validate.validateRequest(validate.schemas.c
 });
 
 router.get("/:customer_id", login, validate.validateCompanyAccess, (req, res) => {
-    _customersService.get(req.params.customer_id).then((customer) => {
+    _customersService.get(req.params.customer_id, req.headers['selected-company']).then((customer) => {
         let response = functions.createResponse("Retorno do cliente", customer, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => res.status(500).send(error));

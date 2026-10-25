@@ -95,11 +95,11 @@ let schema = {
         "any.required": errors.string.empty(),
       }),
     status: Joi.string()
-      .valid("agendado", "iniciado", "realizado", "cancelado")
+      .valid("agendado", "iniciado", "realizado", "cancelado", "pendente_pagamento")
       .required()
       .messages({
         "any.only":
-          'O status deve ser "agendado", "iniciado", "realizado" ou "cancelado".',
+          'Selecione um status válido para o agendamento.',
         "any.required": errors.string.empty(),
       }),
     zip_code: Joi.string()

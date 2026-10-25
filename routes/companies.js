@@ -16,8 +16,8 @@ router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
 });
 
 router.post("/create_company", login, validate.validateRequest(validate.schemas.companies.createCompany), (req, res, next) => {
-    _companiesService.createCompany(req.usuario.id, req.body).then(() => {
-        let response = functions.createResponse("Empresa criada com sucesso", null, "POST", 200);
+    _companiesService.createCompany(req.usuario.id, req.body).then((id) => {
+        let response = functions.createResponse("Empresa criada com sucesso", { id }, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
         return res.status(500).send({ message: error.message || error });

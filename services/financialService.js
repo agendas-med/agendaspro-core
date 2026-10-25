@@ -15,9 +15,9 @@ let financialService = {
                         c.image AS customer_image,
                         c.tel AS customer_tel,
                         a.date AS due_date,
-                        SUM(s.value) AS value,
+                        SUM(s.value * aps.quantity) AS value,
                         CASE 
-                            WHEN a.canceled = 0 AND a.status = "realizado" AND a.date <= NOW() THEN "Pago"
+                            WHEN a.payment_status = 'pago' THEN "Pago"
                             WHEN a.date >= NOW() THEN "Em Aberto"
                             ELSE "Atrasado"
                         END AS status

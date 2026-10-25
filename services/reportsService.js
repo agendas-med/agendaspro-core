@@ -52,7 +52,7 @@ let reportsService = {
                     `;
                     queryParams = [
                         dataBase.startOf('isoWeek').format('YYYY-MM-DD'),
-                        dataBase.endOf('isoWeek').format('YYYY-MM-DD'),
+                        dataBase.endOf('isoWeek').format('YYYY-MM-DD HH:mm:ss'),
                         company_id
                     ];
                 }
@@ -122,7 +122,6 @@ let reportsService = {
                 let firstMonday = new Date(jan4);
                 firstMonday.setDate(jan4.getDate() - (jan4.getDay() || 7) + 1); // Ajusta para a segunda-feira da primeira semana
 
-                dateFilter = `a.date BETWEEN '${new Date(year, 0, 1).toISOString().split("T")[0]}' AND '${new Date(year, 11, 31).toISOString().split("T")[0]}'`;
                 dateFormat = "%Y-%m-%d"; // Agrupa por dia
                 formatLabel = (date) => {
                     const diasSemana = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", 
@@ -132,6 +131,9 @@ let reportsService = {
     
                 let startOfWeek = new Date(firstMonday);
                 startOfWeek.setDate(startOfWeek.getDate() + (parseInt(week) - 1) * 7);
+                const endOfWeek = new Date(startOfWeek);
+                endOfWeek.setDate(endOfWeek.getDate() + 7);
+                dateFilter = `a.date >= '${moment(startOfWeek).format('YYYY-MM-DD')}' AND a.date < '${moment(endOfWeek).format('YYYY-MM-DD')}'`;
 
                 for (let i = 0; i < 7; i++) {
                     let currentDate = new Date(startOfWeek);
@@ -145,8 +147,8 @@ let reportsService = {
             const query = `
                 SELECT 
                     DATE_FORMAT(a.date, '${dateFormat}') AS periodo, 
-                    SUM(s.value) * COUNT(a.id) AS total_receita,
-                    SUM(s.cost) * COUNT(a.id) AS total_despesa
+                    SUM(s.value * asv.quantity) AS total_receita,
+                    SUM(s.cost * asv.quantity) AS total_despesa
                 FROM appointment_status_view a
                 JOIN appointment_services asv ON a.id = asv.appointment_id
                 JOIN services s ON asv.service_id = s.id

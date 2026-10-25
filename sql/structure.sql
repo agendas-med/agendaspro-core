@@ -1,5 +1,4 @@
-CREATE DATABASE  IF NOT EXISTS `agendaspro_db` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci */;
-USE `agendaspro_db`;
+-- Aplicar ao banco selecionado na conexão. Para bancos existentes, use npm run db:migrate.
 -- MySQL dump 10.13  Distrib 8.0.45, for Win64 (x86_64)
 --
 -- Host: localhost    Database: agendaspro_db
@@ -26,15 +25,20 @@ DROP TABLE IF EXISTS `accounts_receivable`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `accounts_receivable` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
-  `customer_id` int(11) NOT NULL,
-  `value` float NOT NULL,
-  `due_date` date NOT NULL,
+  `customer_id` int(11) DEFAULT NULL,
+  `due_date` date DEFAULT NULL,
   `status` varchar(10) NOT NULL DEFAULT 'EM ABERTO',
   `observations` text DEFAULT NULL,
+  `sale_id` int(11) DEFAULT NULL,
+  `amount` float NOT NULL,
+  `payment_type` varchar(50) DEFAULT NULL,
+  `receive_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `customer_id` (`customer_id`),
-  CONSTRAINT `accounts_receivable_ibfk_1` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+  KEY `fk_receivable_sale` (`sale_id`),
+  CONSTRAINT `accounts_receivable_ibfk_1` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_receivable_sale` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -48,12 +52,13 @@ CREATE TABLE `appointment_services` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `service_id` int(11) NOT NULL,
   `appointment_id` int(11) NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   KEY `FK_appointment_services_service_id` (`service_id`),
   KEY `FK_appointment_services_appointment_id` (`appointment_id`),
   CONSTRAINT `FK_appointment_services_appointment_id` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`),
   CONSTRAINT `FK_appointment_services_service_id` FOREIGN KEY (`service_id`) REFERENCES `services` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=105 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -75,6 +80,13 @@ SET @saved_cs_client     = @@character_set_client;
  1 AS `checkin`,
  1 AS `checkout`,
  1 AS `canceled`,
+ 1 AS `zip_code`,
+ 1 AS `address`,
+ 1 AS `number`,
+ 1 AS `complement`,
+ 1 AS `city`,
+ 1 AS `state`,
+ 1 AS `payment_status`,
  1 AS `status`*/;
 SET character_set_client = @saved_cs_client;
 
@@ -103,12 +115,29 @@ CREATE TABLE `appointments` (
   `city` varchar(100) DEFAULT NULL,
   `state` varchar(2) DEFAULT NULL,
   `notified_1h` tinyint(1) DEFAULT 0,
+  `payment_status` varchar(20) DEFAULT 'isento',
   PRIMARY KEY (`id`),
   KEY `FK_appointments_customer_id` (`customer_id`),
   KEY `FK_appointments_company_id` (`company_id`),
   CONSTRAINT `FK_appointments_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`),
   CONSTRAINT `FK_appointments_customer_id` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `asaas_wallets`
+--
+
+DROP TABLE IF EXISTS `asaas_wallets`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `asaas_wallets` (
+  `document` varchar(20) NOT NULL,
+  `asaas_api_key` varchar(255) NOT NULL,
+  `asaas_wallet_id` varchar(100) NOT NULL,
+  `asaas_status` varchar(20) DEFAULT 'PENDING',
+  PRIMARY KEY (`document`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -122,7 +151,7 @@ CREATE TABLE `business_types` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=55 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -140,10 +169,18 @@ CREATE TABLE `companies` (
   `state` varchar(2) DEFAULT NULL,
   `business_type` int(11) DEFAULT NULL,
   `zip_code` varchar(9) DEFAULT NULL,
+  `document` varchar(20) DEFAULT NULL,
+  `email` varchar(100) DEFAULT NULL,
+  `phone` varchar(20) DEFAULT NULL,
+  `address_number` varchar(20) DEFAULT NULL,
+  `complement` varchar(100) DEFAULT NULL,
+  `asaas_wallet_id` varchar(255) DEFAULT NULL,
+  `asaas_api_key` varchar(255) DEFAULT NULL,
+  `asaas_status` varchar(20) NOT NULL DEFAULT 'PENDING',
   PRIMARY KEY (`id`),
   KEY `FK_companies_business_type` (`business_type`),
   CONSTRAINT `FK_companies_business_type` FOREIGN KEY (`business_type`) REFERENCES `business_types` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -168,7 +205,7 @@ CREATE TABLE `company_invitations` (
   KEY `FK_company_invitations_user_email` (`invited_user`),
   CONSTRAINT `FK_company_invitatios_role_id` FOREIGN KEY (`role_id`) REFERENCES `config_company_roles` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_invitations_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -188,7 +225,7 @@ CREATE TABLE `company_members` (
   KEY `FK_company_members_company` (`company_id`),
   CONSTRAINT `FK_company_members_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_company_members_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -208,7 +245,7 @@ CREATE TABLE `config_companies_preferences` (
   KEY `FK_config_companies_preferences_company_id` (`company_id`),
   CONSTRAINT `FK_config_companies_preferences_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_config_companies_preferences_preference_id` FOREIGN KEY (`preference_id`) REFERENCES `preferences` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=43 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -227,7 +264,7 @@ CREATE TABLE `config_companies_schedule` (
   PRIMARY KEY (`id`),
   KEY `FK_config_companies_schedule_company_id` (`company_id`),
   CONSTRAINT `FK_config_companies_schedule_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=44 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -247,7 +284,7 @@ CREATE TABLE `config_company_roles` (
   PRIMARY KEY (`id`),
   KEY `FK_config_company_roles_company_id` (`company_id`),
   CONSTRAINT `FK_config_company_roles_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -264,7 +301,7 @@ CREATE TABLE `config_notifications` (
   PRIMARY KEY (`id`),
   KEY `company` (`company`),
   CONSTRAINT `config_notifications_ibfk_1` FOREIGN KEY (`company`) REFERENCES `companies` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -283,7 +320,7 @@ CREATE TABLE `config_opening_hours` (
   PRIMARY KEY (`id`),
   KEY `company` (`company`),
   CONSTRAINT `config_opening_hours_ibfk_1` FOREIGN KEY (`company`) REFERENCES `companies` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -303,7 +340,7 @@ CREATE TABLE `config_users_roles` (
   KEY `FK_config_users_roles_role_id` (`role_id`),
   CONSTRAINT `FK_config_users_roles_role_id` FOREIGN KEY (`role_id`) REFERENCES `config_company_roles` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_config_users_roles_user_id` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -321,11 +358,12 @@ CREATE TABLE `customers` (
   `image` varchar(255) DEFAULT NULL,
   `company_id` int(11) NOT NULL,
   `cpf` varchar(14) DEFAULT NULL,
+  `email` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `FK_customers_company_id` (`company_id`),
   KEY `IDX_name` (`name`),
   CONSTRAINT `FK_customers_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -342,7 +380,7 @@ CREATE TABLE `password_requests` (
   `request_date` datetime NOT NULL DEFAULT current_timestamp(),
   `confirm_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -358,7 +396,8 @@ CREATE TABLE `payments` (
   `sale_id` int(11) NOT NULL,
   `amount` float NOT NULL,
   `customer_id` int(11) NOT NULL,
-  `payment_type` enum('pix','cartao_debito','cartao_credito','dinheiro') NOT NULL,
+  `payment_type` enum('pix','pix_asaas','cartao_debito','cartao_credito','dinheiro') NOT NULL,
+  `external_id` varchar(255) DEFAULT NULL,
   `create_date` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `IDX_payments_company_id` (`company_id`),
@@ -366,10 +405,11 @@ CREATE TABLE `payments` (
   KEY `IDX_payments_customer_id` (`customer_id`),
   KEY `IDX_payments_create_date` (`create_date`),
   KEY `IDX_payments_payment_type` (`payment_type`),
+  UNIQUE KEY `uq_payments_external_id` (`external_id`),
   CONSTRAINT `FK_payments_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_payments_customer_id` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_payments_sale_id` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -385,7 +425,7 @@ CREATE TABLE `preferences` (
   `name` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `code` (`code`)
-) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -409,7 +449,7 @@ CREATE TABLE `products` (
   KEY `FK_products_unit_of_measure` (`unit_of_measure`),
   CONSTRAINT `FK_products_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_products_unit_of_measure` FOREIGN KEY (`unit_of_measure`) REFERENCES `units_of_measurement` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -426,6 +466,10 @@ CREATE TABLE `sales` (
   `appointment_id` int(11) DEFAULT NULL,
   `create_date` date NOT NULL DEFAULT current_timestamp(),
   `status` enum('realizada','em_aberto','cancelada') NOT NULL DEFAULT 'em_aberto',
+  `pix_asaas_id` varchar(255) DEFAULT NULL,
+  `pix_payload` text DEFAULT NULL,
+  `pix_encoded_image` mediumtext DEFAULT NULL,
+  `pix_expiration_date` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `FK_sales_company_id` (`company_id`),
   KEY `FK_sales_appointment_id` (`appointment_id`),
@@ -433,7 +477,7 @@ CREATE TABLE `sales` (
   CONSTRAINT `FK_sales_appointment_id` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_sales_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_sales_customer_id` FOREIGN KEY (`customer_id`) REFERENCES `customers` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -448,12 +492,13 @@ CREATE TABLE `sales_products` (
   `sale_id` int(11) NOT NULL,
   `product_id` int(11) NOT NULL,
   `quantity` int(11) NOT NULL,
+  `unit_price` decimal(12,2) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `FK_sales_products_sale_id` (`sale_id`),
   KEY `FK_sales_products_product_id` (`product_id`),
   CONSTRAINT `FK_sales_products_product_id` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE,
   CONSTRAINT `FK_sales_products_sale_id` FOREIGN KEY (`sale_id`) REFERENCES `sales` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -471,10 +516,13 @@ CREATE TABLE `services` (
   `value` float NOT NULL,
   `company_id` int(11) NOT NULL,
   `cost` float NOT NULL,
+  `requires_location` tinyint(1) NOT NULL DEFAULT 0,
+  `accepts_quantity` tinyint(1) NOT NULL DEFAULT 0,
+  `measurement_unit` varchar(50) NOT NULL DEFAULT 'unidade',
   PRIMARY KEY (`id`),
   KEY `FK_services_company_id` (`company_id`),
   CONSTRAINT `FK_services_company_id` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -493,7 +541,7 @@ CREATE TABLE `stock_movements` (
   PRIMARY KEY (`id`),
   KEY `FK_stock_movements_product_id` (`product_id`),
   CONSTRAINT `FK_stock_movements_product_id` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -508,7 +556,7 @@ CREATE TABLE `units_of_measurement` (
   `name` varchar(10) NOT NULL,
   `abbreviation` varchar(3) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -532,7 +580,7 @@ CREATE TABLE `users` (
   `code` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
-) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -546,7 +594,7 @@ CREATE TABLE `versaodb` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `version` varchar(10) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_uca1400_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -562,10 +610,10 @@ CREATE TABLE `whatsapp_sessions` (
   `messages` longtext DEFAULT NULL,
   `collected_data` longtext DEFAULT NULL CHECK (json_valid(`collected_data`)),
   `stage` varchar(50) DEFAULT 'menu',
-  `status` enum('active','closed') NOT NULL DEFAULT 'active',
+  `status` varchar(50) DEFAULT 'active',
   `updated_at` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=34 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -586,10 +634,10 @@ CREATE TABLE `whatsapp_sessions` (
 /*!50001 SET @saved_col_connection     = @@collation_connection */;
 /*!50001 SET character_set_client      = utf8mb4 */;
 /*!50001 SET character_set_results     = utf8mb4 */;
-/*!50001 SET collation_connection      = utf8mb4_uca1400_ai_ci */;
+/*!50001 SET collation_connection      = utf8mb4_unicode_ci */;
 /*!50001 CREATE ALGORITHM=UNDEFINED */
-/*!50013 DEFINER=`root`@`%` SQL SECURITY DEFINER */
-/*!50001 VIEW `appointment_status_view` AS select `a`.`id` AS `id`,`a`.`customer_id` AS `customer_id`,`a`.`customer_name` AS `customer_name`,`a`.`date` AS `date`,`a`.`duration` AS `duration`,`a`.`observations` AS `observations`,`a`.`company_id` AS `company_id`,`a`.`checkin` AS `checkin`,`a`.`checkout` AS `checkout`,`a`.`canceled` AS `canceled`,case when `a`.`canceled` = 1 then 'cancelado' when `a`.`checkin` is not null and `a`.`checkout` is not null then 'realizado' when `a`.`checkin` is not null and exists(select 1 from (`config_companies_preferences` `ccp` join `preferences` `p` on(`p`.`id` = `ccp`.`preference_id`)) where `ccp`.`company_id` = `a`.`company_id` and `p`.`code` = 'auto_finish_appointments' limit 1) and current_timestamp() >= `a`.`checkin` + interval `a`.`duration` minute then 'realizado' when `a`.`checkin` is not null then 'iniciado' else 'agendado' end AS `status` from `appointments` `a` */;
+
+/*!50001 VIEW `appointment_status_view` AS select `appointments`.`id` AS `id`,`appointments`.`customer_id` AS `customer_id`,`appointments`.`customer_name` AS `customer_name`,`appointments`.`date` AS `date`,`appointments`.`duration` AS `duration`,`appointments`.`observations` AS `observations`,`appointments`.`company_id` AS `company_id`,`appointments`.`checkin` AS `checkin`,`appointments`.`checkout` AS `checkout`,`appointments`.`canceled` AS `canceled`,`appointments`.`zip_code` AS `zip_code`,`appointments`.`address` AS `address`,`appointments`.`number` AS `number`,`appointments`.`complement` AS `complement`,`appointments`.`city` AS `city`,`appointments`.`state` AS `state`,`appointments`.`payment_status` AS `payment_status`,case when `appointments`.`canceled` = 1 then 'cancelado' when `appointments`.`payment_status` = 'pendente' then 'pendente_pagamento' when `appointments`.`checkout` is not null then 'concluido' when `appointments`.`checkin` is not null then 'em_andamento' else 'agendado' end AS `status` from `appointments` */;
 /*!50001 SET character_set_client      = @saved_cs_client */;
 /*!50001 SET character_set_results     = @saved_cs_results */;
 /*!50001 SET collation_connection      = @saved_col_connection */;
@@ -603,4 +651,21 @@ CREATE TABLE `whatsapp_sessions` (
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-04-02 21:11:32
+-- Dump completed on 2026-04-04 23:14:21
+
+CREATE OR REPLACE SQL SECURITY INVOKER VIEW appointment_status_view AS
+SELECT a.*,
+  CASE
+    WHEN a.canceled = 1 THEN 'cancelado'
+    WHEN a.checkout IS NOT NULL THEN 'realizado'
+    WHEN a.checkin IS NOT NULL AND EXISTS (
+      SELECT 1 FROM config_companies_preferences ccp
+      JOIN preferences p ON p.id = ccp.preference_id
+      WHERE ccp.company_id = a.company_id
+        AND p.code = 'auto_finish_appointments' AND ccp.active = 1
+    ) AND CURRENT_TIMESTAMP >= a.checkin + INTERVAL a.duration MINUTE THEN 'realizado'
+    WHEN a.checkin IS NOT NULL THEN 'iniciado'
+    WHEN a.payment_status = 'pendente' THEN 'pendente_pagamento'
+    ELSE 'agendado'
+  END AS status
+FROM appointments a;

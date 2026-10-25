@@ -5,9 +5,14 @@ const _asaasService = require("./asaasService");
 const moment = require("moment");
 const axios = require("axios");
 
-const openai = new OpenAI({
+let openaiClient;
+const openai = new Proxy({}, { get(_, property) {
+  if (!process.env.OPENAI_API_KEY) throw new Error('Configure OPENAI_API_KEY para utilizar o assistente.');
+  openaiClient ||= new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-});
+  });
+  return openaiClient[property];
+} });
 
 const UNIT_QUESTIONS = {
   unidade: "Para quantas unidades seria o agendamento?",
@@ -1239,6 +1244,12 @@ let openaiService = {
           subaccountApiKey,
         );
 
+        await functions.executeTransaction(async query => {
+          const [sale] = await query('SELECT id FROM sales WHERE appointment_id = ? AND company_id = ? FOR UPDATE', [newAppId, company_id]);
+          await query('UPDATE sales SET pix_asaas_id = ? WHERE id = ?', [paymentLink.paymentId, sale.id]);
+          await query("INSERT INTO accounts_receivable (sale_id, customer_id, amount, payment_type, status) VALUES (?, ?, ?, 'pix_asaas', 'EM ABERTO')", [sale.id, customerId, calculatedTotal]);
+        });
+
         return `PAGAMENTO_PENDENTE|${paymentLink.url}`;
       } else {
         await _appointmentsService.create(
@@ -1256,9 +1267,7 @@ let openaiService = {
       }
     } catch (error) {
       if (newAppId) {
-        await functions.executeSql(`DELETE FROM appointments WHERE id = ?`, [
-          newAppId,
-        ]);
+        await _appointmentsService.delete(newAppId, company_id);
       }
 
       const msgErro = error.message

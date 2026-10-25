@@ -1,4 +1,4 @@
-const axios = require("axios");
+const axios = require("axios").create({ timeout: 15000 });
 
 const ASAAS_URL =
   process.env.ASAAS_ENV === "production"
@@ -12,6 +12,11 @@ const getHeaders = (apiKey) => ({
 });
 
 const asaasService = {
+  async cancelCharge(id, apiKey) {
+    const { data } = await axios.get(`${ASAAS_URL}/payments/${id}`, { headers: getHeaders(apiKey), timeout: 15000 });
+    if (['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'].includes(data.status)) throw new Error('A cobrança já foi paga. Aguarde a confirmação do pagamento.');
+    await axios.delete(`${ASAAS_URL}/payments/${id}`, { headers: getHeaders(apiKey), timeout: 15000 });
+  },
   // ---------------------------------------------------------------------------
   // 1. CRIAÇÃO DE SUBCONTA (Chamado com sua API Key Principal)
   // ---------------------------------------------------------------------------
@@ -173,6 +178,7 @@ const asaasService = {
 
       return {
         paymentId: response.data.id,
+        encodedImage: qrCodeResponse.data.encodedImage,
         payload: qrCodeResponse.data.payload,
         expirationDate: qrCodeResponse.data.expirationDate,
       };
@@ -192,19 +198,19 @@ const asaasService = {
     try {
       const payload = {
         customer: args.customerAsaasId,
-        billingType: "UNDEFINED",
+        billingType: "PIX",
         value: args.value,
         dueDate: new Date(new Date().getTime() + 24 * 60 * 60 * 1000)
           .toISOString()
           .split("T")[0],
         externalReference: args.externalReference,
         description: args.description,
-        split: [
+        ...(process.env.ASAAS_MAIN_WALLET_ID ? { split: [
           {
             walletId: process.env.ASAAS_MAIN_WALLET_ID,
             percentualValue: 5,
           },
-        ],
+        ] } : {}),
       };
 
       const response = await axios.post(`${ASAAS_URL}/payments`, payload, {
@@ -278,9 +284,11 @@ const asaasService = {
         );
         return null;
       }
+      if (!/^[^\s]{32,255}$/.test(process.env.ASAAS_WEBHOOK_TOKEN || '')) throw new Error('Configure ASAAS_WEBHOOK_TOKEN com 32 a 255 caracteres sem espaços.');
 
       const payload = {
         name: "Webhook AgendasPRO", 
+        authToken: process.env.ASAAS_WEBHOOK_TOKEN,
         url: webhookUrl,
         email: process.env.USER_EMAIL || "sistema.agendaspro@gmail.com",
         sendType: "NON_SEQUENTIALLY", 

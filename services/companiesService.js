@@ -27,7 +27,8 @@ let companiesService = {
                         c.zip_code,
                         business_type,
                         city,
-                        state
+                        state,
+                        c.asaas_status
                     FROM
                         companies c
                     INNER JOIN
@@ -56,6 +57,7 @@ let companiesService = {
                             business_type: results[0]?.business_type || "",
                             city: results[0]?.city || "",
                             state: results[0]?.state || "",
+                            asaas_status: results[0]?.asaas_status || 'UNCONFIGURED',
                             configurations: results2,
                             roles: results3,
                             services: results4,
@@ -238,7 +240,7 @@ let companiesService = {
           apiKey = walletInfo[0].asaas_api_key;
           walletId = walletInfo[0].asaas_wallet_id;
           asaasStatus = walletInfo[0].asaas_status || "PENDING";
-        } else {
+        } else if (process.env.ASAAS_API_KEY) {
           const asaasAccount = await _asaasService.createSubaccount({
             name: data.name,
             email: data.email,
@@ -261,6 +263,10 @@ let companiesService = {
             [cleanDocument, apiKey, walletId, asaasStatus],
           );
           await _asaasService.createWebhook(apiKey).catch(err => console.log("Aviso: Falha ao registrar Webhook na subconta", err.message));
+        } else {
+          apiKey = null;
+          walletId = null;
+          asaasStatus = 'UNCONFIGURED';
         }
 
         functions
@@ -299,7 +305,7 @@ let companiesService = {
             promises.push(
               this.createRole(results.insertId, "Gerente", 1, true).then(
                 (roleId) => {
-                  _usersService.insertRole(user_id, roleId);
+                  return _usersService.insertRole(user_id, roleId);
                 },
               ),
             );
@@ -310,8 +316,8 @@ let companiesService = {
 
             Promise.all(promises).then(() => {
               _usersService.returnUserCompanies(user_id, true);
-              resolve();
-            });
+              resolve(results.insertId);
+            }).catch(reject);
           })
           .catch((error) => {
             reject(error);
@@ -326,23 +332,11 @@ let companiesService = {
     });
   },
   insertCompanyDefaultPreferences: function (company_id) {
-    functions.insertCompanyPreference(company_id, "notificate_scheduling", 1);
-    functions.insertCompanyPreference(
-      company_id,
-      "notificate_in_app_payment",
-      1,
-    );
-    functions.insertCompanyPreference(
-      company_id,
-      "notificate_scheduling_cancelation",
-      1,
-    );
-    functions.insertCompanyPreference(company_id, "accept_custom_location", 0);
-    functions.insertCompanyPreference(
-      company_id,
-      "require_payment_on_booking",
-      0,
-    );
+    return Promise.all([
+      ['notificate_scheduling', 1], ['notificate_in_app_payment', 1],
+      ['notificate_scheduling_cancelation', 1], ['accept_custom_location', 0],
+      ['require_payment_on_booking', 0], ['auto_finish_appointments', 0],
+    ].map(([code, active]) => functions.insertCompanyPreference(company_id, code, active)));
   },
   returnCompanyConfigurations: function (company_id, clearCache = false) {
     return new Promise((resolve, reject) => {
@@ -1408,7 +1402,8 @@ let companiesService = {
       `SELECT asaas_api_key, asaas_status FROM companies WHERE id = ?`,
       [company_id],
     );
-    if (!companyData[0].asaas_api_key) return null;
+    if (!companyData[0]) throw new Error('Empresa não encontrada.');
+    if (!companyData[0].asaas_api_key) return { status: 'UNCONFIGURED', onboardingUrl: null };
 
     const asaasData = await _asaasService.getAccountStatus(
       companyData[0].asaas_api_key,

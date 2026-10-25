@@ -1,0 +1,21 @@
+services:
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3307}:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-agendaspro_db}
+      MARIADB_USER: ${MYSQL_USER:-agendaspro}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:?Configure MYSQL_PASSWORD}
+      TZ: America/Sao_Paulo
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+volumes:
+  mariadb_data:

@@ -1,603 +1,136 @@
-const functions = require("../utils/functions");
-const sendEmails = require("../config/sendEmail");
-const emailTemplates = require("../templates/emailTemplates");
-const _stockService = require("./stockService");
+const functions = require('../utils/functions');
+const cents = value => Math.round(Number(value) * 100);
 
-let salesService = {
-  create: function (company_id, customer_id, appointment_id, products, status) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const companyInfo = await functions.executeSql(
-          `SELECT asaas_status FROM companies WHERE id = ?`,
-          [company_id],
-        );
-        if (companyInfo[0].asaas_status !== "APPROVED") {
-          return reject(
-            "Ação bloqueada. A conta de recebimentos desta empresa ainda não foi aprovada ou validada.",
-          );
-        }
-
-        let unavailableProducts = [];
-
-        for (let i = 0; i < products.length; i++) {
-          let currentProduct = products[i];
-          let currentProductAvailableQuantity = await functions.returnColumn(
-            "products",
-            currentProduct.id,
-            "current_stock",
-            "id",
-          );
-
-          if (currentProduct.quantity > currentProductAvailableQuantity) {
-            unavailableProducts.push({
-              availableQuantity: currentProductAvailableQuantity,
-              product: currentProduct,
-            });
-          }
-        }
-
-        if (unavailableProducts.length > 0) {
-          let returnString = `Um ou mais produtos estão indisponíveis para esta quantidade: \n`;
-
-          for (let i = 0; i < unavailableProducts.length; i++) {
-            returnString +=
-              "\n" +
-              unavailableProducts[i].product.name +
-              " (Disponível: " +
-              unavailableProducts[i].availableQuantity +
-              ")";
-          }
-
-          reject(returnString);
-        } else {
-          const validStatus = status || "em_aberto";
-
-          functions
-            .executeSql(
-              `
-                            INSERT INTO
-                                sales
-                                (company_id, customer_id, appointment_id, status)
-                            VALUES
-                                (?, ?, ?, ?)
-                        `,
-              [company_id, customer_id, appointment_id, validStatus],
-            )
-            .then(async (results) => {
-              let sale_id = results.insertId;
-              let productsToInsert = [];
-
-              for (let i = 0; i < products.length; i++) {
-                let currentProduct = products[i];
-                productsToInsert.push(
-                  `(${sale_id}, ${currentProduct.id}, ${currentProduct.quantity}, ${currentProduct.value})`,
-                );
-
-                await _stockService.remove(
-                  currentProduct.id,
-                  currentProduct.quantity,
-                );
-              }
-
-              if (productsToInsert.length > 0) {
-                functions
-                  .executeSql(
-                    `
-                                    INSERT INTO 
-                                        sales_products
-                                        (sale_id, product_id, quantity, unit_price)
-                                    VALUES
-                                        ${productsToInsert.join(",")}
-                                `,
-                    [],
-                  )
-                  .then(() => {
-                    this.returnSales(company_id, true);
-                    resolve(sale_id);
-                  })
-                  .catch((error) => {
-                    reject(error);
-                  });
-              } else {
-                this.returnSales(company_id, true);
-                resolve(sale_id);
-              }
-            })
-            .catch((error) => {
-              reject(error);
-            });
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
-  },
-  isFinishedSale: function (saleId) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        let result = await functions.executeSql(
-          `
-                        SELECT
-                            id
-                        FROM
-                            sales
-                        WHERE
-                            status = "realizada"
-                        AND
-                            id = ?
-                    `,
-          [saleId],
-        );
-
-        resolve(result.length > 0);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  },
-  update: function (
-    sale_id,
-    company_id,
-    customer_id,
-    appointment_id,
-    products,
-    status,
-  ) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        let isFinishedSale = await this.isFinishedSale(sale_id);
-
-        if (isFinishedSale) {
-          reject("Impossível alterar a venda pois já está concluída");
-        } else {
-          let unavailableProducts = [];
-
-          for (let i = 0; i < products.length; i++) {
-            let currentProduct = products[i];
-            let currentProductAvailableQuantity = await functions.returnColumn(
-              "products",
-              currentProduct.id,
-              "current_stock",
-              "id",
-            );
-
-            if (currentProduct.quantity > currentProductAvailableQuantity) {
-              unavailableProducts.push({
-                availableQuantity: currentProductAvailableQuantity,
-                product: currentProduct,
-              });
-            }
-          }
-
-          if (unavailableProducts.length > 0) {
-            let returnString = `Um ou mais produtos estão indisponíveis para esta quantidade: \n`;
-
-            for (let i = 0; i < unavailableProducts.length; i++) {
-              returnString +=
-                "\n" +
-                unavailableProducts[i].product.name +
-                " (Disponível: " +
-                unavailableProducts[i].availableQuantity +
-                ")";
-            }
-
-            reject(returnString);
-          } else {
-            if (status == "realizada") {
-              let payments = await this.returnPayments(sale_id);
-
-              if (!payments.length) {
-                reject(
-                  "A venda não pode ser concluída pois existem valores em aberto",
-                );
-                return;
-              }
-
-              let paymentsSum = payments.reduce((acumulador, pagamento) => {
-                return acumulador + parseFloat(pagamento.amount);
-              }, 0);
-
-              let sale = await this.returnSale(sale_id);
-
-              if (paymentsSum < sale.total) {
-                reject(
-                  "A venda não pode ser concluída pois existem valores em aberto",
-                );
-                return;
-              }
-            }
-
-            functions
-              .executeSql(
-                `
-                                UPDATE
-                                    sales
-                                SET
-                                    customer_id = ?, appointment_id = ?, status = ?
-                                WHERE
-                                    company_id = ? AND id = ?
-                            `,
-                [customer_id, appointment_id, status, company_id, sale_id],
-              )
-              .then((results) => {
-                this.removeProductsFromSale(sale_id)
-                  .then(async () => {
-                    let promises = [];
-
-                    for (let i = 0; i < products.length; i++) {
-                      let currentProduct = products[i];
-
-                      promises.push(
-                        this.insertProductInSale(
-                          sale_id,
-                          currentProduct.id,
-                          currentProduct.quantity,
-                        ),
-                      );
-
-                      if (status == "realizada") {
-                        promises.push(
-                          _stockService.remove(
-                            currentProduct.id,
-                            currentProduct.quantity,
-                          ),
-                        );
-                      }
-                    }
-
-                    Promise.all(promises)
-                      .then(() => {
-                        this.returnSales(company_id, true);
-                        resolve();
-                      })
-                      .catch((error) => {
-                        reject(error);
-                      });
-                  })
-                  .catch((error) => {
-                    reject(error);
-                  });
-              })
-              .catch((error) => {
-                reject(error);
-              });
-          }
-        }
-      } catch (error) {
-        reject(error);
-      }
-    });
-  },
-  delete: function (sale_id, company_id) {
-    return new Promise(async (resolve, reject) => {
-      const saleInfo = await functions.executeSql(
-        `SELECT s.appointment_id, asv.status AS appointment_status FROM sales s INNER JOIN appointment_status_view asv ON asv.id = s.appointment_id WHERE s.id = ? AND s.company_id = ?`,
-        [sale_id, company_id],
-      );
-
-      if (saleInfo.length > 0 && (saleInfo[0].appointment_id !== null && saleInfo[0].appointment_status != "cancelado")) {
-        return reject(
-          "Não é possível excluir uma venda que possui serviços ou um agendamento vinculado.",
-        );
-      }
-
-      functions
-        .executeSql(
-          `
-                    DELETE FROM
-                        sales
-                    WHERE
-                        id = ? AND company_id = ?
-                `,
-          [sale_id, company_id],
-        )
-        .then(() => {
-          this.returnSales(company_id, true);
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  removeProductsFromSale: function (sale_id) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    DELETE FROM
-                        sales_products
-                    WHERE
-                        sale_id = ?
-                `,
-          [sale_id],
-        )
-        .then(() => {
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  insertProductInSale: function (sale_id, product_id, quantity) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    INSERT INTO
-                        sales_products
-                        (sale_id, product_id, quantity)
-                    VALUES
-                        (?, ?, ?)
-                `,
-          [sale_id, product_id, quantity],
-        )
-        .then(() => {
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  returnSaleProducts: function (sale_id, clearCache = false) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        p.id,
-                        p.name,
-                        p.value,
-                        p.description,
-                        p.cost,
-                        sp.quantity,
-                        p.current_stock AS available_quantity
-                    FROM
-                        products p
-                    INNER JOIN
-                        sales_products sp ON sp.product_id = p.id
-                    WHERE
-                        sp.sale_id = ? 
-                `,
-          [sale_id],
-          !clearCache,
-        )
-        .then((results) => {
-          resolve(results);
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  returnSaleServices: function (sale_id, clearCache = false) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `SELECT s.id, s.name, s.duration, s.observations, s.cost, s.value, aps.quantity
-           FROM services s
-           INNER JOIN appointment_services aps ON aps.service_id = s.id
-           INNER JOIN sales sa ON sa.appointment_id = aps.appointment_id
-           WHERE sa.id = ?`,
-          [sale_id],
-          !clearCache,
-        )
-        .then((results) => resolve(results))
-        .catch((error) => reject(error));
-    });
-  },
-  returnSale: function (sale_id) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        s.*,
-                        c.id AS customer_id,
-                        c.name AS customer_name,
-                        SUM(COALESCE(p.amount, 0)) AS total_paid,
-                        IF(
-                            COUNT(p.id) > 0,
-                            JSON_ARRAYAGG(
-                                JSON_OBJECT(
-                                    'id', p.id,
-                                    'amount', p.amount,
-                                    'payment_type', p.payment_type
-                                )
-                            ),
-                            '[]'
-                        ) AS payments
-                    FROM
-                        sales AS s
-                    INNER JOIN
-                        customers AS c ON c.id = s.customer_id
-                    LEFT JOIN
-                        payments p ON p.sale_id = s.id
-                    WHERE
-                        s.id = ?
-                    GROUP BY
-                        s.id, c.id, c.name;
-                `,
-          [sale_id],
-        )
-        .then(async (results) => {
-          if (results.length) {
-            results[0] = await this.insertSalePaymentsAndValueAndProducts(
-              results[0],
-              true,
-            );
-            resolve(results[0]);
-          } else {
-            reject("Nenhuma venda encontrada");
-          }
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  returnSales: function (company_id, clearCache = false) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        s.*,
-                        c.id AS customer_id,
-                        c.name AS customer_name,
-                        SUM(COALESCE(p.amount, 0)) AS total_paid,
-                        IF(
-                            COUNT(p.id) > 0,
-                            JSON_ARRAYAGG(
-                                JSON_OBJECT(
-                                    'id', p.id,
-                                    'amount', p.amount,
-                                    'payment_type', p.payment_type
-                                )
-                            ),
-                            '[]'
-                        ) AS payments
-                    FROM
-                        sales AS s
-                    INNER JOIN
-                        customers AS c ON c.id = s.customer_id
-                    LEFT JOIN
-                        payments p ON p.sale_id = s.id
-                    WHERE
-                        s.company_id = ?
-                    GROUP BY
-                        s.id, c.id, c.name;
-                `,
-          [company_id],
-          !clearCache,
-        )
-        .then(async (results) => {
-          for (let i = 0; i < results.length; i++) {
-            results[i] = await this.insertSalePaymentsAndValueAndProducts(
-              results[i],
-              clearCache,
-            );
-          }
-          resolve(results);
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  insertSalePaymentsAndValueAndProducts: async function (
-    currentSale,
-    clearCache = false,
-  ) {
-    currentSale["debts_list"] = [];
-    currentSale["payments_summary"] = {};
-
-    let products = await this.returnSaleProducts(currentSale.id, clearCache);
-    let services = await this.returnSaleServices(currentSale.id, clearCache);
-    let productsValuesSum = 0;
-    let servicesValuesSum = 0;
-
-    if (
-      currentSale.payments &&
-      currentSale.payments[0] &&
-      currentSale.payments[0].id !== null
-    ) {
-      JSON.parse(currentSale.payments).forEach((p) => {
-        if (!currentSale.payments_summary[p.payment_type])
-          currentSale.payments_summary[p.payment_type] = 0;
-        currentSale.payments_summary[p.payment_type] += p.amount;
-      });
+async function validateLinks(query, companyId, customerId, appointmentId, saleId = 0) {
+  const customers = await query('SELECT id FROM customers WHERE id = ? AND company_id = ?', [customerId, companyId]);
+  if (!customers.length) throw new Error('Cliente não encontrado nesta empresa.');
+  if (appointmentId) {
+    const appointments = await query('SELECT id FROM appointments WHERE id = ? AND company_id = ? AND customer_id = ? FOR UPDATE', [appointmentId, companyId, customerId]);
+    if (!appointments.length) throw new Error('Agendamento inválido para esta empresa e cliente.');
+    const linked = await query('SELECT id FROM sales WHERE appointment_id = ? AND id <> ? FOR UPDATE', [appointmentId, saleId]);
+    if (linked.length) throw new Error('Este agendamento já possui uma venda.');
+  }
+}
+async function replaceProducts(query, sale, products, status) {
+  const previous = await query('SELECT * FROM sales_products WHERE sale_id = ?', [sale.id]);
+  const ids = [...new Set([...previous.map(p => p.product_id), ...products.map(p => Number(p.id))])].sort((a, b) => a - b);
+  if (new Set(products.map(p => Number(p.id))).size !== products.length) throw new Error('Produto duplicado.');
+  const stock = ids.length ? await query('SELECT * FROM products WHERE company_id = ? AND id IN (?) ORDER BY id FOR UPDATE', [sale.company_id, ids]) : [];
+  for (const product of products) {
+    if (!stock.some(p => p.id === Number(product.id)) || !Number.isInteger(Number(product.quantity)) || Number(product.quantity) <= 0) throw new Error('Produto ou quantidade inválida.');
+  }
+  for (const id of ids) {
+    const product = stock.find(p => p.id === id);
+    if (!product) throw new Error('Produto de outra empresa.');
+    const oldQuantity = sale.status === 'cancelada' ? 0 : Number(previous.find(p => p.product_id === id)?.quantity || 0);
+    const newQuantity = status === 'cancelada' ? 0 : Number(products.find(p => Number(p.id) === id)?.quantity || 0);
+    const delta = newQuantity - oldQuantity;
+    if (product.current_stock < delta) throw new Error(`Estoque insuficiente para ${product.name}.`);
+    if (delta) {
+      await query('UPDATE products SET current_stock = current_stock - ? WHERE id = ?', [delta, id]);
+      await query('INSERT INTO stock_movements (product_id, quantity, type) VALUES (?, ?, ?)', [id, Math.abs(delta), delta > 0 ? 'remove' : 'add']);
     }
+  }
+  await query('DELETE FROM sales_products WHERE sale_id = ?', [sale.id]);
+  for (const product of products) {
+    const old = previous.find(p => p.product_id === Number(product.id));
+    const unitPrice = old?.unit_price ?? stock.find(p => p.id === Number(product.id)).value;
+    await query('INSERT INTO sales_products (sale_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)', [sale.id, product.id, product.quantity, unitPrice]);
+  }
+}
 
-    for (let j = 0; j < products.length; j++) {
-      let currentProduct = products[j];
-      currentSale.debts_list.push({
-        value: currentProduct.value * currentProduct.quantity,
-        name: currentProduct.name,
-      });
-      productsValuesSum += currentProduct.value * currentProduct.quantity;
+const salesService = {
+  async setAppointmentCancellation(query, companyId, appointmentId, canceled) {
+    const linked = await query('SELECT * FROM sales WHERE company_id = ? AND appointment_id = ? FOR UPDATE', [companyId, appointmentId]);
+    for (const sale of linked) {
+      const [paid] = await query('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [sale.id]);
+      if (paid.total || sale.pix_asaas_id || sale.status === 'realizada') continue;
+      const items = await query('SELECT product_id AS id, quantity FROM sales_products WHERE sale_id = ?', [sale.id]);
+      const status = canceled ? 'cancelada' : 'em_aberto';
+      await replaceProducts(query, sale, items, status);
+      await query('UPDATE sales SET status = ? WHERE id = ?', [status, sale.id]);
     }
-
-    for (let j = 0; j < services.length; j++) {
-      let currentService = services[j];
-      let qty = currentService.quantity || 1;
-
-      currentSale.debts_list.push({
-        value: currentService.value * qty,
-        name:
-          qty > 1 ? `${currentService.name} (x${qty})` : currentService.name,
-      });
-
-      servicesValuesSum += currentService.value * qty;
-    }
-
-    currentSale["total"] = productsValuesSum + servicesValuesSum;
-    currentSale.payments = currentSale.payments
-      ? JSON.parse(currentSale.payments)
-      : [];
-    return { ...currentSale, products, services };
   },
-  insertPayment: function (
-    company_id,
-    sale_id,
-    amount,
-    payment_type,
-    customer_id,
-  ) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    INSERT INTO
-                        payments
-                        (
-                            company_id,
-                            sale_id,
-                            amount,
-                            customer_id,
-                            payment_type
-                        )
-                    VALUES
-                        (?, ?, ?, ?, ?)
-                `,
-          [company_id, sale_id, amount, customer_id, payment_type],
-        )
-        .then((results) => {
-          if (results.insertId) {
-            this.returnSales(company_id, true);
-            resolve();
-          } else {
-            reject("Ocorreu um erro ao inserir o pagamento");
-          }
-        })
-        .catch((error) => {
-          reject(error);
-        });
+  async lockSale(query, saleId, companyId) {
+    const [sale] = await query('SELECT * FROM sales WHERE id = ? AND company_id = ? FOR UPDATE', [saleId, companyId]);
+    if (!sale) throw new Error('Venda não encontrada nesta empresa.');
+    return sale;
+  },
+  async totals(query, sale) {
+    const [row] = await query(`SELECT
+      COALESCE((SELECT SUM(quantity * unit_price) FROM sales_products WHERE sale_id = ?), 0) +
+      COALESCE((SELECT SUM(aps.quantity * s.value) FROM appointment_services aps JOIN services s ON s.id = aps.service_id WHERE aps.appointment_id = ?), 0) AS total,
+      COALESCE((SELECT SUM(amount) FROM payments WHERE sale_id = ?), 0) AS total_paid`, [sale.id, sale.appointment_id, sale.id]);
+    return { total: Number(row.total), total_paid: Number(row.total_paid) };
+  },
+  async create(companyId, customerId, appointmentId, products = [], status = 'em_aberto') {
+    if (status === 'realizada') throw new Error('Cadastre a venda e registre o pagamento antes de finalizar.');
+    return functions.executeTransaction(async query => {
+      await validateLinks(query, companyId, customerId, appointmentId);
+      const result = await query('INSERT INTO sales (company_id, customer_id, appointment_id, status) VALUES (?, ?, ?, ?)', [companyId, customerId, appointmentId || null, status]);
+      await replaceProducts(query, { id: result.insertId, company_id: companyId, status: 'cancelada' }, products, status);
+      return result.insertId;
     });
   },
-  returnPayments: function (sale_id) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        let payments = await functions.executeSql(
-          `
-                    SELECT
-                        *
-                    FROM
-                        payments
-                    WHERE
-                        sale_id = ?
-                `,
-          [sale_id],
-        );
-
-        resolve(payments);
-      } catch (error) {
-        reject(error);
+  async update(id, companyId, customerId, appointmentId, products = [], status) {
+    return functions.executeTransaction(async query => {
+      const sale = await this.lockSale(query, id, companyId);
+      if (sale.status === 'realizada') throw new Error('A venda já foi concluída.');
+      if (sale.pix_asaas_id) throw new Error('Cancele ou aguarde o pagamento do Pix antes de alterar a venda.');
+      await validateLinks(query, companyId, customerId, appointmentId, id);
+      const [paid] = await query('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [id]);
+      if (paid.total) {
+        const old = await query('SELECT product_id AS id, quantity FROM sales_products WHERE sale_id = ? ORDER BY product_id', [id]);
+        const incoming = products.map(p => ({ id: Number(p.id), quantity: Number(p.quantity) })).sort((a, b) => a.id - b.id);
+        if (JSON.stringify(old) !== JSON.stringify(incoming) || Number(customerId) !== sale.customer_id || (Number(appointmentId) || null) !== sale.appointment_id || status === 'cancelada') {
+          throw new Error('Não altere os itens ou cancele uma venda com pagamentos registrados.');
+        }
       }
+      await replaceProducts(query, sale, products, status);
+      sale.appointment_id = appointmentId || null;
+      const totals = await this.totals(query, sale);
+      if (status === 'realizada' && cents(totals.total_paid) < cents(totals.total)) throw new Error('Existem valores em aberto nesta venda.');
+      await query('UPDATE sales SET customer_id = ?, appointment_id = ?, status = ? WHERE id = ? AND company_id = ?', [customerId, appointmentId || null, status, id, companyId]);
     });
+  },
+  async delete(id, companyId) {
+    return functions.executeTransaction(async query => {
+      const sale = await this.lockSale(query, id, companyId);
+      if (sale.appointment_id) throw new Error('Cancele o agendamento vinculado para manter o histórico da venda.');
+      const [paid] = await query('SELECT COUNT(*) AS total FROM payments WHERE sale_id = ?', [id]);
+      if (paid.total || sale.pix_asaas_id) throw new Error('Venda com pagamento ou cobrança não pode ser excluída.');
+      await replaceProducts(query, sale, [], 'cancelada');
+      await query('DELETE FROM sales WHERE id = ? AND company_id = ?', [id, companyId]);
+    });
+  },
+  async returnSaleProducts(id) {
+    return functions.executeSql(`SELECT p.id, p.name, sp.unit_price AS value, p.description, p.cost, sp.quantity,
+      p.current_stock + IF(s.status = 'cancelada', 0, sp.quantity) AS available_quantity
+      FROM sales_products sp JOIN products p ON p.id = sp.product_id JOIN sales s ON s.id = sp.sale_id WHERE sp.sale_id = ?`, [id]);
+  },
+  async returnSaleServices(id) {
+    return functions.executeSql(`SELECT s.*, aps.quantity FROM services s JOIN appointment_services aps ON aps.service_id = s.id
+      JOIN sales sa ON sa.appointment_id = aps.appointment_id WHERE sa.id = ?`, [id]);
+  },
+  async returnPayments(id) { return functions.executeSql('SELECT * FROM payments WHERE sale_id = ? ORDER BY id', [id]); },
+  async decorate(sale) {
+    const [products, services, payments] = await Promise.all([this.returnSaleProducts(sale.id), this.returnSaleServices(sale.id), this.returnPayments(sale.id)]);
+    const debts_list = [...products, ...services].map(item => ({ name: Number(item.quantity || 1) > 1 ? `${item.name} (x${item.quantity})` : item.name, value: Number(item.value) * Number(item.quantity || 1) }));
+    const payments_summary = {};
+    for (const payment of payments) payments_summary[payment.payment_type] = (payments_summary[payment.payment_type] || 0) + Number(payment.amount);
+    return { ...sale, products, services, payments, debts_list, payments_summary,
+      total: debts_list.reduce((sum, item) => sum + item.value, 0), total_paid: payments.reduce((sum, payment) => sum + Number(payment.amount), 0) };
+  },
+  async returnSale(id, companyId) {
+    const [sale] = await functions.executeSql(`SELECT s.*, c.name AS customer_name, c.image AS customer_image
+      FROM sales s JOIN customers c ON c.id = s.customer_id WHERE s.id = ? AND s.company_id = ?`, [id, companyId]);
+    if (!sale) throw new Error('Venda não encontrada nesta empresa.');
+    return this.decorate(sale);
+  },
+  async returnSales(companyId) {
+    const sales = await functions.executeSql(`SELECT s.*, c.name AS customer_name, c.image AS customer_image
+      FROM sales s JOIN customers c ON c.id = s.customer_id WHERE s.company_id = ? ORDER BY s.id DESC`, [companyId]);
+    return Promise.all(sales.map(sale => this.decorate(sale)));
   },
 };
-
 module.exports = salesService;

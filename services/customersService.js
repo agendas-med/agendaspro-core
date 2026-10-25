@@ -15,7 +15,7 @@ let customersService = {
                 functions.executeSql(
                     `
                     INSERT INTO customers (name, cpf, birthday, tel, image, company_id, email)
-                    VALUES (?, ?, ?, ?, ?, ?, )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     `, [name, cpf, birthday, tel, imageUrl, company_id, email]
                 ).then((results) => {
                     if (results.affectedRows > 0) {
@@ -45,8 +45,8 @@ let customersService = {
                     `
                     UPDATE customers 
                     SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?, email = ?
-                    WHERE id = ?
-                    `, [name, cpf, birthday, tel, imageUrl, email, customer_id]
+                    WHERE id = ? AND company_id = ?
+                    `, [name, cpf, birthday, tel, imageUrl, email, customer_id, company_id]
                 ).then(() => {
                     this.getAllByCompany(company_id, true);
                     resolve();
@@ -61,8 +61,8 @@ let customersService = {
     delete: function (company_id, customer_id) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
-                `DELETE FROM customers WHERE id = ?`, 
-                [customer_id]
+                `DELETE FROM customers WHERE id = ? AND company_id = ?`,
+                [customer_id, company_id]
             ).then((results) => {
                 if (results.affectedRows > 0) {
                     this.getAllByCompany(company_id, true);
@@ -75,11 +75,11 @@ let customersService = {
             });
         });
     },
-    get: function (customer_id) {
+    get: function (customer_id, company_id) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
-                `SELECT * FROM customers WHERE id = ?`, 
-                [customer_id]
+                `SELECT * FROM customers WHERE id = ? AND company_id = ?`,
+                [customer_id, company_id]
             ).then((results) => {
                 if (results.length > 0) {
                     resolve(results[0]);
@@ -128,8 +128,8 @@ let customersService = {
     find: function (company_id, search_string) {
         return new Promise((resolve, reject) => {
             functions.executeSql(
-                `SELECT * FROM customers WHERE company_id = ? ${search_string != "***" ? `AND name LIKE "%${search_string}%" or id LIKE "%${search_string}%"` : ""}`, 
-                [company_id]
+                `SELECT * FROM customers WHERE company_id = ? ${search_string != "***" ? 'AND (name LIKE ? OR CAST(id AS CHAR) LIKE ?)' : ''}`,
+                search_string != '***' ? [company_id, `%${search_string}%`, `%${search_string}%`] : [company_id]
             ).then((results) => {
                 let customers = results.map((customer) => {
                     return {

@@ -1,2 +1,10 @@
 node_modules/
 nodemon.json
+.env
+.env.*
+!.env.example
+*.log
+public/uploads/
+.local-access.md
+logs/
+.local-processes.json

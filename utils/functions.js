@@ -34,6 +34,7 @@ let functions = {
         
                         cacheKey = query + JSON.stringify(queryParams);
     
+                        if (!/^\s*(SELECT|SHOW|EXPLAIN|SET)\b/i.test(query)) cache.flushAll();
                         if (useCache) {
                             cache.set(cacheKey, results, cacheSeconds);
                         } else {
@@ -80,10 +81,6 @@ let functions = {
      */
     executeTransaction(queries) {
         return new Promise(async (resolve, reject) => {
-            queries.push({
-                query: "SET time_zone = '-03:00'",
-                queryParams: []
-            });
             
             let conn;
             try {
@@ -94,7 +91,15 @@ let functions = {
                 const query = util.promisify(conn.query).bind(conn);
                 const commit = util.promisify(conn.commit).bind(conn);
 
+                await query("SET time_zone = '-03:00'");
                 await beginTransaction();
+
+                if (typeof queries === 'function') {
+                    const result = await queries(query);
+                    await commit();
+                    cache.flushAll();
+                    return resolve(result);
+                }
 
                 const results = [];
 
@@ -104,6 +109,7 @@ let functions = {
                 }
 
                 await commit();
+                cache.flushAll();
                 resolve(results);
 
             } catch (error) {

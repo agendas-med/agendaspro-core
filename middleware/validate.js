@@ -6,12 +6,11 @@ const sales = require("../schemas/sales");
 const products = require("../schemas/products");
 const services = require("../schemas/services");
 const payments = require("../schemas/payments");
-const _companiesService = require('../services/companiesService');
 
 let validate = {
     validateRequest: (schema) => {
         return (req, res, next) => {
-            const { error } = schema.validate(req.body, { abortEarly: false });
+            const { error, value } = schema.validate(req.body, { abortEarly: false });
             
             if (error) {
                 return res.status(400).json({
@@ -22,6 +21,7 @@ let validate = {
                 });
             }
     
+            req.body = value;
             next();
         }
     },
@@ -39,8 +39,9 @@ let validate = {
         const userId = req.usuario.id;
         const companyId = req.headers['selected-company'];
         
-        _companiesService.returnCompany(companyId, userId, true)
-          .then(company => {
+        require('../utils/functions').executeSql('SELECT 1 FROM company_members WHERE company_id = ? AND user_id = ?', [companyId, userId])
+          .then(rows => {
+            if (!rows.length) return res.status(403).send({ error: "Acesso não autorizado à empresa." });
             next();
           })
           .catch(error => {

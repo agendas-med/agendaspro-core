@@ -15,12 +15,13 @@ router.post("/", login, validate.validateRequest(validate.schemas.appointments.c
         req.body.duration,
         req.body.observations,
         req.body.services,
-        req.body.status
+        req.body.status,
+        req.body
     ).then(() => {
         let response = functions.createResponse("Agendamento criado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 
@@ -35,12 +36,13 @@ router.patch("/:id", login, validate.validateRequest(validate.schemas.appointmen
         req.body.duration,
         req.body.observations,
         req.body.services,
-        req.body.status
+        req.body.status,
+        req.body
     ).then(() => {
         let response = functions.createResponse("Agendamento atualizado com sucesso", null, "PATCH", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 
@@ -53,7 +55,7 @@ router.delete("/:id", login, validate.validateCompanyAccess, (req, res, next) =>
         let response = functions.createResponse("Agendamento excluído com sucesso", null, "DELETE", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 
@@ -66,7 +68,7 @@ router.get("/:id", login, validate.validateCompanyAccess, (req, res, next) => {
         let response = functions.createResponse("Agendamento encontrado", appointment, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(404).send(error);
+        return res.status(404).send(error.message || error);
     });
 });
 
@@ -82,7 +84,7 @@ router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
         let response = functions.createResponse("Lista de agendamentos", appointments, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 
@@ -94,7 +96,7 @@ router.post("/init/:appointment_id", login, validate.validateCompanyAccess, (req
         let response = functions.createResponse("Agendamento iniciado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 
@@ -106,7 +108,7 @@ router.post("/stop/:appointment_id", login, validate.validateCompanyAccess, (req
         let response = functions.createResponse("Agendamento concluído com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 
@@ -118,7 +120,7 @@ router.post("/cancel/:appointment_id", login, validate.validateCompanyAccess, (r
         let response = functions.createResponse("Agendamento cancelado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return res.status(400).send(error.message || error);
     });
 });
 

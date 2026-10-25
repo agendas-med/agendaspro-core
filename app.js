@@ -1,9 +1,11 @@
+require('dotenv').config();
 const cron = require('node-cron');
 const notificationService = require('./services/notificationService');
 
-cron.schedule('* * * * *', async () => {
+if (process.env.ENABLE_REMINDERS !== 'false') cron.schedule('* * * * *', async () => {
     console.log("[Cron] Verificando lembretes de agendamento...");
-    await notificationService.sendHourlyReminders();
+    try { await notificationService.sendHourlyReminders(); }
+    catch (error) { console.error('[Lembretes]', error.message); }
 });
 
 
@@ -31,11 +33,10 @@ app.use(cors());
 require('dotenv').config();
 
 app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', process.env.URL_SITE);
+    if (process.env.URL_SITE) res.header('Access-Control-Allow-Origin', process.env.URL_SITE);
     res.header(
         'Access-Control-Allow-Headers',
-        'Content-Type',
-        'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+        'Origin, X-Requested-With, Content-Type, Accept, Authorization, Selected-company'
     );
 
     if (req.method == 'OPTIONS') {
@@ -46,6 +47,12 @@ app.use((req, res, next) => {
     next();
 });
 
+app.get('/health', async (req, res) => {
+    try {
+        await require('./utils/functions').executeSql('SELECT 1');
+        res.json({ status: 'ok', database: 'ok' });
+    } catch (error) { res.status(503).json({ status: 'unavailable', database: 'unavailable' }); }
+});
 app.use('/users', usersRoute);
 app.use('/companies', companiesRoute);
 app.use('/customers', customersRoute);
