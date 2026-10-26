@@ -41,6 +41,10 @@ Guarde a chave de criptografia com o backup do banco. Trocar ou perder essa chav
 5. Execute `npm run db:migrate` e reinicie a API após alterar o `.env`. O túnel deve encaminhar para a porta da API (3001).
 6. Em Configurações → Recebimentos, um administrador clica **Conectar Mercado Pago** e autoriza a conta do vendedor. O vendedor deve ser diferente da conta central e pertencer ao ambiente brasileiro configurado. No sandbox, use contas de teste distintas de integrador, vendedor e comprador.
 
+Os testes de split usam uma aplicação criada na conta fictícia de **Marketplace** e credenciais `APP_USR` dos usuários fictícios. O OAuth envia `test_token=false`, inclusive com `MP_ENV=test`, e o checkout abre `init_point`. O ambiente continua protegido pela verificação da tag `test_user` e da identidade de cada recebedor; uma conta real não pode ser conectada em modo de teste. Tokens `TEST-` emitidos pela configuração anterior são renovados antes de criar novas cobranças.
+
+O Checkout Pro pode retornar `live_mode=true` também para essas contas fictícias. Nesse caso, a conciliação só aceita o pagamento de teste depois de consultar novamente o perfil do vendedor e confirmar a tag `test_user`. Para conferir a aplicação e a comissão, consulta a preferência e o pedido comercial: o pagamento deve pertencer à preferência congelada, cujo `client_id` é da aplicação esperada, e o `marketplace_owner` deve ser o recebedor da comissão. O campo `application_id` não está presente em todas as respostas de pagamentos. Novas cobranças preservam os IDs da aplicação e do marketplace nos metadados do corpo da requisição armazenada.
+
 Mudar a seleção no painel não preenche automaticamente o `.env`. Ao trocar de aplicação, atualize também token central, IDs e segredo de webhook conforme necessário. A conexão e a retenção de comissão ainda precisam ser homologadas com o provedor; o botão não comprova permissão de split nem verificação de identidade do recebedor.
 
 ## Fluxo e endpoints

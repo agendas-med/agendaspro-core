@@ -36,6 +36,7 @@ function validateOwner(owner, expected) {
     );
 }
 const service = {
+  validateOwner,
   async start(companyId, userId) {
     const settings = oauthConfig();
     const state = crypto.randomBytes(32).toString("hex");
@@ -108,7 +109,8 @@ const service = {
       code,
       redirect_uri: settings.redirectUri,
       code_verifier: tokens.decrypt(intent.verifier),
-      test_token: String(settings.environment === "test"),
+      // Contas fictícias usam APP_USR; validateOwner confere a tag test_user.
+      test_token: "false",
     });
     if (
       !response.access_token ||
@@ -180,11 +182,14 @@ const service = {
       )
         throw new Error("Conecte a conta Mercado Pago da empresa.");
       let accessToken = tokens.decrypt(row.access_token);
-      if (!row.valid) {
+      if (
+        !row.valid ||
+        (row.environment === "test" && accessToken.startsWith("TEST-"))
+      ) {
         const settings = oauthConfig();
         const response = await gateway.request("POST", "/oauth/token", {
           grant_type: "refresh_token",
-          test_token: String(settings.environment === "test"),
+          test_token: "false",
           client_id: settings.clientId,
           client_secret: settings.clientSecret,
           refresh_token: tokens.decrypt(row.refresh_token),

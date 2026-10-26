@@ -207,10 +207,16 @@ const service = {
       `/v1/payments/${encodeURIComponent(invoice.payment.id)}`,
     );
     const settings = config.requireCredentials();
+    const account = await gateway.account();
+    const environmentMatches =
+      payment.live_mode === (settings.environment === "production") ||
+      (settings.environment === "test" &&
+        payment.live_mode === true &&
+        account.tags.includes("test_user"));
     if (
       String(payment.id) !== String(invoice.payment.id) ||
       String(payment.collector_id) !== settings.collectorId ||
-      payment.live_mode !== (settings.environment === "production") ||
+      !environmentMatches ||
       payment.currency_id !== "BRL" ||
       cents(payment.transaction_amount) !== 4990 ||
       cents(invoice.transaction_amount) !== 4990

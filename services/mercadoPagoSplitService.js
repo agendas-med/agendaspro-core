@@ -12,7 +12,35 @@ const safeError = (error) =>
     ? "Não foi possível confirmar a operação no Mercado Pago. Atualize para recuperar a mesma cobrança."
     : error.message;
 
-function validatePayment(payment, charge) {
+function validatePayment(payment, charge, context = {}) {
+  const metadata = JSON.parse(charge.request_body || "{}").metadata || {};
+  const applicationId = String(
+    metadata.agendaspro_application_id || config.settings().clientId,
+  );
+  const marketplaceOwner = String(
+    metadata.agendaspro_marketplace_owner_id || config.settings().collectorId,
+  );
+  const testOwner =
+    String(context.owner?.id) === charge.seller_id &&
+    context.owner?.site_id === "MLB" &&
+    context.owner?.tags?.includes("test_user");
+  const environmentMatches =
+    payment.live_mode === (charge.environment === "production") ||
+    (charge.environment === "test" && payment.live_mode === true && testOwner);
+  const preference = context.preference;
+  const merchantOrder = context.merchantOrder;
+  const checkoutMatches =
+    String(preference?.id) === String(charge.provider_preference_id) &&
+    String(preference?.client_id) === applicationId &&
+    preference?.external_reference === charge.external_reference &&
+    String(preference?.collector_id) === charge.seller_id &&
+    cents(preference?.marketplace_fee || 0) === Number(charge.commission_cents) &&
+    String(merchantOrder?.id) === String(payment.order?.id) &&
+    String(merchantOrder?.preference_id) === String(charge.provider_preference_id) &&
+    String(merchantOrder?.collector?.id) === charge.seller_id &&
+    (merchantOrder?.payments || []).some(
+      (item) => String(item.id) === String(payment.id),
+    );
   const fee = (payment.fee_details || [])
     .filter((item) => item.type === "application_fee")
     .reduce((sum, item) => sum + cents(item.amount), 0);
@@ -20,12 +48,15 @@ function validatePayment(payment, charge) {
     !/^\d+$/.test(String(payment.id)) ||
     payment.external_reference !== charge.external_reference ||
     String(payment.collector_id) !== charge.seller_id ||
-    payment.live_mode !== (charge.environment === "production") ||
+    !environmentMatches ||
     payment.currency_id !== "BRL" ||
     cents(payment.transaction_amount) !== Number(charge.amount_cents) ||
     (payment.status === "approved" &&
       cents(payment.transaction_amount_refunded || 0) === 0 &&
-      (String(payment.application_id) !== String(config.settings().clientId) ||
+      (!checkoutMatches ||
+        (payment.application_id != null &&
+          String(payment.application_id) !== applicationId) ||
+        String(payment.marketplace_owner) !== marketplaceOwner ||
         fee !== Number(charge.commission_cents)))
   ) {
     throw new Error(
@@ -201,6 +232,10 @@ const service = {
           },
         ],
         marketplace_fee: fee / 100,
+        metadata: {
+          agendaspro_application_id: settings.clientId,
+          agendaspro_marketplace_owner_id: settings.collectorId,
+        },
         payer: { email: customer.email },
         notification_url: url.href,
         back_urls: {
@@ -295,6 +330,7 @@ const service = {
       }
       if (
         !remote.id ||
+        String(remote.client_id) !== String(settings.clientId) ||
         remote.external_reference !== charge.external_reference ||
         String(remote.collector_id) !== charge.seller_id ||
         cents(remote.marketplace_fee) !== Number(charge.commission_cents)
@@ -302,10 +338,7 @@ const service = {
         throw new Error(
           "Preferência não corresponde à comissão ou ao vendedor.",
         );
-      const paymentUrl =
-        settings.environment === "test"
-          ? remote.sandbox_init_point || remote.init_point
-          : remote.init_point;
+      const paymentUrl = remote.init_point;
       if (!plans.safeUrl(paymentUrl))
         throw new Error("URL de checkout inválida.");
       await db.executeSql(
@@ -380,7 +413,42 @@ const service = {
     );
     if (String(payment.id) !== String(paymentId))
       throw new Error("Identificador do pagamento divergente.");
-    validatePayment(payment, charge);
+    const context = {};
+    if (charge.environment === "test" && payment.live_mode === true) {
+      context.owner = await gateway.request(
+        "GET",
+        "/users/me",
+        undefined,
+        {},
+        auth.accessToken,
+      );
+      connections.validateOwner(context.owner, charge.seller_id);
+    }
+    if (
+      payment.status === "approved" &&
+      cents(payment.transaction_amount_refunded || 0) === 0
+    ) {
+      if (
+        payment.order?.type !== "mercadopago" ||
+        !/^\d+$/.test(String(payment.order?.id))
+      )
+        throw new Error("Pedido comercial do pagamento inválido.");
+      context.preference = await gateway.request(
+        "GET",
+        `/checkout/preferences/${encodeURIComponent(charge.provider_preference_id)}`,
+        undefined,
+        {},
+        auth.accessToken,
+      );
+      context.merchantOrder = await gateway.request(
+        "GET",
+        `/merchant_orders/${payment.order.id}`,
+        undefined,
+        {},
+        auth.accessToken,
+      );
+    }
+    validatePayment(payment, charge, context);
     return db.executeTransaction(async (query) => {
       const sale = await sales.lockSale(query, charge.sale_id, companyId);
       const [current] = await query(

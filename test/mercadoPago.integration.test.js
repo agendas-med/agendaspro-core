@@ -66,7 +66,8 @@ test(
         loseResponse = false,
         rejectNextPreference = false,
         ownerIsTest = true,
-        providerFailure;
+        providerFailure,
+        orderPreferenceOverride;
       provider = await listen(
         http.createServer(async (req, res) => {
           try {
@@ -80,7 +81,7 @@ test(
             const seller =
               req.headers.authorization?.includes("seller-fixture");
             if (path === "/oauth/token") {
-              assert.equal(body.test_token, "true");
+              assert.equal(body.test_token, "false");
               if (body.grant_type === "authorization_code") {
                 assert.equal(typeof body.code_verifier, "string");
                 assert.equal(body.client_id, "999");
@@ -130,8 +131,12 @@ test(
                 ...body,
                 id: "PREF" + preferencePosts,
                 collector_id: 456,
+                client_id: "999",
                 init_point:
                   "https://www.mercadopago.com.br/checkout/v1/redirect?pref_id=" +
+                  preferencePosts,
+                sandbox_init_point:
+                  "https://sandbox.mercadopago.com.br/checkout/v1/redirect?pref_id=" +
                   preferencePosts,
               };
               preferences.set(value.id, value);
@@ -160,6 +165,22 @@ test(
               assert.ok(value);
               assert.equal(seller, value.collector_id === 456);
               return send(value);
+            }
+            if (path.startsWith("/merchant_orders/")) {
+              const payment = [...payments.values()].find(
+                (p) => String(p.order?.id) === path.split("/").pop(),
+              );
+              assert.ok(payment);
+              const preference = [...preferences.values()].find(
+                (p) => p.external_reference === payment.external_reference,
+              );
+              assert.ok(preference);
+              return send({
+                id: payment.order.id,
+                preference_id: orderPreferenceOverride || preference.id,
+                collector: { id: payment.collector_id },
+                payments: [{ id: payment.id }],
+              });
             }
             if (path === "/preapproval/search")
               return send({
@@ -339,8 +360,9 @@ test(
         const payment = {
           id: String(80000 + payments.size),
           collector_id: 456,
-          application_id: 999,
-          live_mode: false,
+          marketplace_owner: 123,
+          live_mode: true,
+          order: { id: String(900000 + payments.size), type: "mercadopago" },
           currency_id: "BRL",
           transaction_amount: 100,
           transaction_amount_refunded: 0,
@@ -424,7 +446,10 @@ test(
           assert.equal(freeCharge.commission, 5);
           assert.equal(freeCharge.plan, "free");
           assert.equal(freeCharge.api, "checkout");
-          assert.ok(freeCharge.checkout_url);
+          assert.equal(
+            new URL(freeCharge.checkout_url).origin,
+            "https://www.mercadopago.com.br",
+          );
           const again = await request(
             "POST",
             "/payments/mercadopago/charges",
@@ -466,6 +491,18 @@ test(
           remote.fee_details[0].amount = 1;
           await signed(remote.id, "payment", freeCharge.id, 503);
           remote.fee_details[0].amount = 5;
+          remote.marketplace_owner = 321;
+          await signed(remote.id, "payment", freeCharge.id, 503);
+          remote.marketplace_owner = 123;
+          preferences.get("PREF1").client_id = "998";
+          await signed(remote.id, "payment", freeCharge.id, 503);
+          preferences.get("PREF1").client_id = "999";
+          orderPreferenceOverride = "OTHER";
+          await signed(remote.id, "payment", freeCharge.id, 503);
+          orderPreferenceOverride = undefined;
+          ownerIsTest = false;
+          await signed(remote.id, "payment", freeCharge.id, 503);
+          ownerIsTest = true;
           await request(
             "POST",
             `/webhook/mercadopago?data.id=${remote.id}&charge_id=${freeCharge.id}`,
@@ -637,7 +674,7 @@ test(
         },
       );
       await t.test(
-        "token expirado renova a conexão e conta fora do ambiente não gera cobrança",
+        "token expirado ou TEST legado renova a conexão; conta real não gera cobrança de teste",
         async () => {
           await sql(
             "UPDATE mp_connections SET expires_at=DATE_SUB(NOW(),INTERVAL 1 HOUR)",
@@ -651,6 +688,18 @@ test(
             { "Idempotency-Key": crypto.randomUUID() },
           );
           assert.equal(refreshes, 1);
+          await sql(
+            "UPDATE mp_connections SET access_token=?, expires_at=DATE_ADD(NOW(),INTERVAL 1 HOUR)",
+            [require("../utils/mercadoPagoTokens").encrypt("TEST-legacy-fixture")],
+          );
+          await request(
+            "POST",
+            "/payments/mercadopago/charges",
+            input(await newSale()),
+            200,
+            { "Idempotency-Key": crypto.randomUUID() },
+          );
+          assert.equal(refreshes, 2);
           ownerIsTest = false;
           const other = await newSale(),
             before = preferencePosts;
@@ -689,7 +738,7 @@ test(
           const p = {
             id: "99001",
             collector_id: 123,
-            live_mode: false,
+            live_mode: true,
             currency_id: "BRL",
             transaction_amount: 49.9,
             transaction_amount_refunded: 0,
@@ -716,6 +765,11 @@ test(
             "free",
           );
           p.transaction_amount = 49.9;
+          ownerIsTest = false;
+          await signed(
+            "77001", "subscription_authorized_payment", undefined, 503,
+          );
+          ownerIsTest = true;
           await signed("77001", "subscription_authorized_payment");
           await signed("77001", "subscription_authorized_payment");
           const plan = (await request("GET", "/payments/mercadopago/plans"))
