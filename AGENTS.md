@@ -1,6 +1,6 @@
 # agendaspro-core
 
-Back-end e banco local do AgendasPro (Node/Express; MariaDB 11.4 em `127.0.0.1:3307` via Docker). Setup completo, Mercado Pago e payouts: `README.md` e `docs/` (`mercadopago.md`, `payouts-activation.md`). Regras de publicação e de interface da pasta pai: `../AGENTS.md`.
+Back-end e banco local do AgendasPro (Node/Express; MariaDB 11.4 em `127.0.0.1:3307` via Docker). Setup completo, Mercado Pago e payouts: `README.md` e `docs/` (`mercadopago.md`, `payouts-activation.md`).
 
 Scripts: `test` (`node --test`), `test:integration`, `db:migrate`, `db:seed-demo`, `payments:reconcile`, `payments:check`, `start`, `dev` (nodemon).
 
