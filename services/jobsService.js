@@ -152,3 +152,6 @@ module.exports = { register, registerProducer, enqueue, claim, tick, drainSoon, 
 const notificationService = require("./notificationService");
 register("appointment_reminder", notificationService.sendAppointmentReminder);
 registerProducer("appointment_reminders", (jobs) => notificationService.enqueueDueReminders(jobs));
+// F2: lembrete 2h (Premium), mesma regra de janela tolerante a atraso.
+register("appointment_reminder_2h", notificationService.sendAppointmentReminder2h);
+registerProducer("appointment_reminders_2h", (jobs) => notificationService.enqueueDueReminders2h(jobs));
