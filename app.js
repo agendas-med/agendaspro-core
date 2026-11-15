@@ -38,8 +38,17 @@ app.disable('x-powered-by');
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
 // Log de acesso sem query string (tokens), corpo ou headers.
-morgan.token('path', (req) => (req.originalUrl || req.url || '').split('?')[0]);
+// manage_token da API pública é credencial: some do log.
+morgan.token('path', (req) => (req.originalUrl || req.url || '').split('?')[0].replace(/^(\/public\/bookings\/)[^/]+/, '$1[token]'));
 if (process.env.NODE_ENV !== 'test') app.use(morgan(':method :path :status :response-time ms'));
+
+// API pública (F3): CORS, corpo, headers e erros próprios; montada antes do CORS/body globais.
+// Compatibilidade: uploads locais antigos (/public/uploads/x) redirecionam para /static/uploads/x.
+app.get('/public/uploads/:file', (req, res, next) => {
+    if (!/^[\w.-]{1,200}$/.test(req.params.file) || req.params.file.startsWith('.')) return next();
+    return res.redirect(301, `/static/uploads/${encodeURIComponent(req.params.file)}`);
+});
+app.use('/public', require('./routes/public'));
 
 // CORS por allowlist (CORS_ORIGINS, separado por vírgula; URL_SITE como fallback).
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.URL_SITE || '')
@@ -82,15 +91,11 @@ app.use("/billing", require('./routes/billing'));
 app.use("/professionals", require('./routes/professionals'));
 app.use("/availability-rules", require('./routes/availabilityRules'));
 app.use("/time-blocks", require('./routes/timeBlocks'));
+app.use("/public-page", require('./routes/publicPage'));
 app.get('/health/deep', require('./middleware/requireToken')('ADMIN_TOKEN'), internalRoute.deepHealth);
 
-// Arquivos estáticos em /static. O prefixo /public fica reservado para a API pública (F3).
-// Compatibilidade: uploads locais antigos (/public/uploads/x) redirecionam para /static/uploads/x.
+// Arquivos estáticos em /static. O prefixo /public é da API pública (F3).
 app.use('/static', express.static('static', { dotfiles: 'deny', index: false }));
-app.get('/public/uploads/:file', (req, res, next) => {
-    if (!/^[\w.-]{1,200}$/.test(req.params.file) || req.params.file.startsWith('.')) return next();
-    return res.redirect(301, `/static/uploads/${encodeURIComponent(req.params.file)}`);
-});
 
 app.use((req, res, next) => {
     const erro = new Error("Não encontrado");

@@ -279,8 +279,23 @@ let companiesService = {
       this.createRole(results.insertId, "Gerente", 1, true).then((roleId) => _usersService.insertRole(user_id, roleId)),
       this.insertCompanyDefaultPreferences(results.insertId),
     ]);
+    // F3: endereço da página pública (página nasce desabilitada; a empresa publica quando quiser).
+    await this.assignSlug(results.insertId, data.name).catch(() => console.error('[companies] slug não atribuído'));
     _usersService.returnUserCompanies(user_id, true).catch(() => {});
     return results.insertId;
+  },
+  assignSlug: async function (companyId, name) {
+    const { slugify, withSuffix } = require("../utils/slug");
+    const base = slugify(name);
+    for (const candidate of [base, withSuffix(base), withSuffix(base), withSuffix(base)]) {
+      try {
+        const result = await functions.executeSql("UPDATE companies SET slug = ? WHERE id = ? AND slug IS NULL", [candidate, companyId]);
+        return result.affectedRows ? candidate : null;
+      } catch (error) {
+        if (error?.code !== "ER_DUP_ENTRY") throw error;
+      }
+    }
+    return null;
   },
   insertCompanyDefaultPreferences: function (company_id) {
     return Promise.all([
