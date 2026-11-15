@@ -1,0 +1,242 @@
+{
+  "version": "2026-11-15.1",
+  "locale": "pt-BR",
+  "notes": "Base de conhecimento do chat público. Preços, comissões e limites NUNCA são escritos aqui: vêm da tabela plans via placeholders {{...}} (ver knowledge/index.js). keywords já em minúsculas e sem acento. audience: business (visitante do site, dono de negócio) | customer (cliente final de uma clínica) | both.",
+  "refusal": "Desculpe, só consigo ajudar com o AgendasPro: agenda online, planos, página de agendamento e dúvidas sobre agendamentos. Posso ajudar com algo disso?",
+  "fallback": {
+    "business": "Não tenho certeza se entendi. Posso explicar os planos, a agenda online, a página de agendamento com sinal Pix ou os lembretes por WhatsApp. Se preferir, deixe seu contato que nossa equipe fala com você.",
+    "customer": "Não tenho certeza se entendi. Posso explicar como agendar, remarcar ou cancelar e como funciona o sinal por Pix. Para assuntos específicos do seu atendimento, fale direto com o estabelecimento."
+  },
+  "blocked": "Esta conversa foi pausada por segurança. Se precisar de ajuda, fale com o estabelecimento ou com a nossa equipe pelos canais do site.",
+  "injection_refusal": "Não posso fazer isso. Posso ajudar com dúvidas sobre o AgendasPro, planos ou agendamentos.",
+  "forbidden_topics": [
+    { "id": "medical", "keywords": ["diagnostico", "remedio", "medicamento", "receita medica", "dosagem", "posso tomar", "sintoma", "tratamento para", "dose de"], "answer": "Não posso dar orientação de saúde. Para isso, converse com um profissional durante o seu atendimento." },
+    { "id": "legal_financial", "keywords": ["processo judicial", "advogado", "investimento", "acoes da bolsa", "criptomoeda", "bitcoin", "emprestimo", "imposto de renda"], "answer": "Não posso orientar sobre assuntos jurídicos, fiscais ou de investimentos. Posso ajudar com o AgendasPro e com agendamentos." },
+    { "id": "politics_religion", "keywords": ["eleicao", "eleicoes", "em quem votar", "partido politico", "politica partidaria", "religiao", "deus existe"], "answer": "Prefiro não opinar sobre esse assunto. Posso ajudar com o AgendasPro e com agendamentos." },
+    { "id": "adult_violence", "keywords": ["sexo", "porno", "nude", "arma", "droga", "matar"], "answer": "Não posso ajudar com isso. Posso ajudar com o AgendasPro e com agendamentos." },
+    { "id": "tech_offtopic", "keywords": ["escreva um codigo", "programa em python", "codigo em javascript", "hackear", "invadir", "senha do wifi", "faca minha tarefa", "redacao sobre", "traduza"], "answer": "Isso foge do que eu faço por aqui. Posso ajudar com o AgendasPro e com agendamentos." }
+  ],
+  "entries": [
+    {
+      "id": "greeting", "audience": "both", "intent": "greeting",
+      "keywords": ["oi", "ola", "bom dia", "boa tarde", "boa noite", "eai", "hello", "hi"],
+      "answer": {
+        "business": "Olá! Sou o assistente do AgendasPro. Posso explicar planos e preços, a agenda online, a página de agendamento com sinal Pix e os lembretes por WhatsApp. Como posso ajudar?",
+        "customer": "Olá! Posso ajudar você a agendar, remarcar ou cancelar um horário e explicar como funciona o pagamento do sinal. Como posso ajudar?"
+      },
+      "suggestions": { "business": ["Quanto custa?", "Como funciona a agenda?", "Como começo?"], "customer": ["Como agendar?", "Remarcar horário", "Formas de pagamento"] }
+    },
+    {
+      "id": "thanks", "audience": "both", "intent": "thanks",
+      "keywords": ["obrigado", "obrigada", "valeu", "agradeco", "brigado", "thanks"],
+      "answer": "Por nada! Se surgir outra dúvida, é só chamar."
+    },
+    {
+      "id": "plans", "audience": "business", "intent": "plans",
+      "keywords": ["plano", "planos", "preco", "precos", "quanto custa", "valor", "valores", "mensalidade", "assinatura", "custa", "pagar quanto", "tabela de precos", "free", "premium", "gratis", "gratuito"],
+      "answer": "Temos dois planos. Free: {{free_price}} de mensalidade e {{free_commission}} de comissão só sobre o que você vende online pela plataforma. Premium: {{premium_price}}/mês e comissão de {{premium_commission}}. Detalhes em {{site_pricing_url}}",
+      "action": "plans",
+      "suggestions": ["O que tem no Free?", "O que o Premium inclui?", "Vale a pena o Premium?"]
+    },
+    {
+      "id": "commission", "audience": "business", "intent": "plans",
+      "keywords": ["comissao", "taxa", "porcentagem", "percentual", "cobram por venda", "taxa por agendamento", "split"],
+      "answer": "A comissão incide só sobre vendas online pela plataforma (ex.: sinal Pix): {{free_commission}} no Free e {{premium_commission}} no Premium. Agendamentos sem pagamento online não pagam comissão.",
+      "suggestions": ["Quanto custa o Premium?", "Como funciona o sinal Pix?"]
+    },
+    {
+      "id": "free_plan", "audience": "business", "intent": "plans",
+      "keywords": ["plano free", "plano gratis", "plano gratuito", "no free", "limite do free", "limites", "o que tem no free", "gratis tem"],
+      "answer": "O Free não tem mensalidade e inclui: {{free_max_professionals}} profissional, {{free_max_team_users}} usuários da equipe, página pública de agendamento (com o rodapé do AgendasPro), sinal por Pix, confirmação e lembrete de 24h por WhatsApp (até {{free_whatsapp_messages}} mensagens/mês), assistente de IA no painel ({{free_ai_interactions}} interações/mês, só consulta) e relatórios básicos ({{free_history_months}} meses de histórico).",
+      "suggestions": ["O que o Premium inclui?", "Como começo?"]
+    },
+    {
+      "id": "premium_plan", "audience": "business", "intent": "plans",
+      "keywords": ["plano premium", "no premium", "premium inclui", "o que o premium", "vantagens do premium", "beneficios"],
+      "answer": "O Premium custa {{premium_price}}/mês, com comissão de {{premium_commission}}. Inclui profissionais e usuários ilimitados, página sem a marca AgendasPro e com a sua cor, lembretes de 24h e 2h por WhatsApp sem limite mensal (uso justo), mensagens pós-atendimento e de aniversário, lista de espera, reativação de clientes inativos, pedido de avaliação no Google, integração com Instagram e Google Agenda, assistente de IA ({{premium_ai_interactions}} interações/mês, com ações confirmadas por você) e relatórios avançados com exportação CSV.",
+      "suggestions": ["Vale a pena o Premium?", "Como começo?"]
+    },
+    {
+      "id": "breakeven", "audience": "business", "intent": "plans",
+      "keywords": ["vale a pena", "compensa", "qual plano escolher", "qual plano", "melhor plano", "economizo", "ponto de equilibrio"],
+      "answer": "Pela diferença de comissão ({{free_commission}} no Free e {{premium_commission}} no Premium), o Premium se paga a partir de cerca de {{breakeven}} por mês em vendas online. Abaixo disso, o Free costuma sair mais barato.",
+      "suggestions": ["Como começo?", "Falar com a equipe"]
+    },
+    {
+      "id": "billing_payment", "audience": "business", "intent": "plans",
+      "keywords": ["pagar o plano", "forma de pagamento do plano", "boleto", "cartao de credito", "como pago a assinatura", "fidelidade", "cancelar o plano", "cancelar assinatura", "contrato"],
+      "answer": "A assinatura do Premium é mensal e cobrada pelo Asaas, nosso parceiro de pagamentos (Pix, boleto ou cartão, conforme disponível na fatura). O Premium vale após a confirmação do pagamento. Se não renovar, a conta volta ao Free após a carência, sem perder a agenda.",
+      "suggestions": ["Quanto custa?", "Como começo?"]
+    },
+    {
+      "id": "agenda", "audience": "business", "intent": "features",
+      "keywords": ["agenda", "agenda online", "calendario", "funcionalidades", "recursos", "o que faz", "sistema de agendamento", "horarios de atendimento", "expediente", "bloqueio"],
+      "answer": "O AgendasPro organiza a agenda por profissional, com expediente, bloqueios e checagem de conflito. Você cadastra clientes, serviços e vendas, acompanha o financeiro e os relatórios, e seus clientes agendam sozinhos pela sua página pública.",
+      "suggestions": ["Página de agendamento", "Lembretes por WhatsApp", "Quanto custa?"]
+    },
+    {
+      "id": "professionals", "audience": "business", "intent": "features",
+      "keywords": ["profissionais", "profissional", "equipe", "funcionarios", "colaboradores", "mais de um", "varios profissionais", "usuarios", "acesso da equipe"],
+      "answer": "Cada profissional tem sua agenda, expediente e serviços. No Free são {{free_max_professionals}} profissional e {{free_max_team_users}} usuários da equipe; no Premium, ilimitados.",
+      "suggestions": ["O que o Premium inclui?", "Como começo?"]
+    },
+    {
+      "id": "public_page", "audience": "business", "intent": "features",
+      "keywords": ["pagina publica", "link de agendamento", "pagina de agendamento", "meu link", "qr code", "qrcode", "site da clinica", "agendamento online", "cliente agendar sozinho", "bio do instagram"],
+      "answer": "Sua empresa ganha uma página de agendamento no endereço {{site_url}}/b/seu-nome, para divulgar por link, QR code, WhatsApp ou Instagram. O cliente escolhe serviço, profissional e horário livre, e pode pagar um sinal por Pix. No Free a página mostra o rodapé \"Feito com AgendasPro\"; no Premium sai a marca e entra a sua cor.",
+      "suggestions": ["Como funciona o sinal Pix?", "Lembretes por WhatsApp"]
+    },
+    {
+      "id": "deposit_pix", "audience": "business", "intent": "features",
+      "keywords": ["sinal", "pix", "pagamento antecipado", "no show", "noshow", "falta", "faltas", "cobrar adiantado", "deposito", "taxa de reserva", "receber online"],
+      "answer": "Você pode exigir um sinal por Pix nos serviços que quiser (a partir de {{min_deposit}}). O horário fica reservado por alguns minutos até o pagamento; sem pagamento, a vaga é liberada. O valor cai na sua conta Asaas, com a comissão do plano ({{free_commission}} no Free, {{premium_commission}} no Premium) descontada automaticamente.",
+      "suggestions": ["Quanto custa?", "Como começo?"]
+    },
+    {
+      "id": "whatsapp", "audience": "business", "intent": "features",
+      "keywords": ["whatsapp", "zap", "wpp", "lembrete", "lembretes", "confirmacao", "mensagem automatica", "bot", "robo", "chatbot"],
+      "answer": "Pelo WhatsApp oficial (Cloud API da Meta), o AgendasPro envia confirmação e lembretes, e o cliente pode agendar, remarcar e cancelar conversando com o bot, com passagem para um atendente quando precisar. Free: confirmação e lembrete de 24h, até {{free_whatsapp_messages}} mensagens/mês. Premium: lembretes de 24h e 2h sem limite mensal (uso justo), pós-atendimento e aniversário.",
+      "suggestions": ["O que o Premium inclui?", "Como começo?"]
+    },
+    {
+      "id": "instagram", "audience": "business", "intent": "features",
+      "keywords": ["instagram", "insta", "redes sociais", "posts", "engajamento"],
+      "answer": "Em todos os planos você pode colocar o link da sua página de agendamento na bio do Instagram. A integração com o Instagram (métricas, posts, engajamento e conversão) faz parte do Premium.",
+      "suggestions": ["O que o Premium inclui?"]
+    },
+    {
+      "id": "google_calendar", "audience": "business", "intent": "features",
+      "keywords": ["google agenda", "google calendar", "sincronizar", "sincronizacao", "agenda do google", "outlook"],
+      "answer": "A sincronização com o Google Agenda faz parte do Premium. Outras agendas não são sincronizadas no momento.",
+      "suggestions": ["O que o Premium inclui?"]
+    },
+    {
+      "id": "internal_ai", "audience": "business", "intent": "features",
+      "keywords": ["inteligencia artificial", "ia", "assistente", "chatgpt", "gpt", "assistente virtual"],
+      "answer": "O painel tem um assistente de IA para consultar sua agenda e seus números: {{free_ai_interactions}} interações/mês no Free (só consulta) e {{premium_ai_interactions}}/mês no Premium, com ações que só acontecem depois da sua confirmação.",
+      "suggestions": ["O que o Premium inclui?"]
+    },
+    {
+      "id": "reports", "audience": "business", "intent": "features",
+      "keywords": ["relatorio", "relatorios", "financeiro", "faturamento", "exportar", "csv", "excel", "estoque", "vendas"],
+      "answer": "Há controle de vendas, estoque e financeiro, com relatórios. Free: relatórios básicos com {{free_history_months}} meses de histórico. Premium: relatórios avançados, histórico ilimitado e exportação CSV.",
+      "suggestions": ["O que o Premium inclui?"]
+    },
+    {
+      "id": "lgpd", "audience": "business", "intent": "privacy",
+      "keywords": ["lgpd", "privacidade", "protecao de dados", "seguranca", "dados dos clientes", "dados seguros", "consentimento"],
+      "answer": "O AgendasPro segue a LGPD: o cliente dá consentimento ao agendar, você pode exportar, anonimizar ou excluir os dados de um cliente pelo painel, e chaves de integração ficam cifradas. Veja a política em {{site_privacy_url}}",
+      "suggestions": ["Como começo?"]
+    },
+    {
+      "id": "segments", "audience": "business", "intent": "features",
+      "keywords": ["para quem", "serve para", "clinica", "salao", "barbearia", "estetica", "consultorio", "petshop", "studio", "manicure", "fisioterapia", "psicologo", "nutricionista", "meu negocio"],
+      "answer": "O AgendasPro é feito para negócios que atendem com hora marcada: clínicas, consultórios, salões, barbearias, estúdios de estética e similares, com um ou vários profissionais.",
+      "suggestions": ["Quanto custa?", "Como começo?"]
+    },
+    {
+      "id": "getting_started", "audience": "business", "intent": "signup",
+      "keywords": ["como comeco", "como comecar","comecar", "criar conta", "cadastro", "cadastrar", "testar", "teste gratis", "periodo de teste", "quero usar", "quero contratar", "assinar", "inscrever", "registrar"],
+      "answer": "É rápido: crie sua conta grátis, cadastre a empresa, os serviços e o expediente dos profissionais e ative sua página de agendamento. O plano Free não tem mensalidade; você pode passar para o Premium quando quiser.",
+      "action": "signup",
+      "suggestions": ["Quanto custa?", "Falar com a equipe"]
+    },
+    {
+      "id": "account_access", "audience": "business", "intent": "support",
+      "keywords": ["esqueci a senha", "esqueci minha senha", "recuperar senha", "redefinir senha", "nao consigo entrar", "nao consigo acessar", "login", "acessar o painel", "entrar no painel"],
+      "answer": "Na tela de login do painel há a opção de recuperar a senha por e-mail. Se ainda assim não conseguir entrar, deixe seu contato que nossa equipe ajuda.",
+      "action": "lead_form",
+      "suggestions": ["Falar com a equipe"]
+    },
+    {
+      "id": "human_business", "audience": "business", "intent": "handoff",
+      "keywords": ["falar com alguem", "falar com uma pessoa", "atendente", "humano", "vendedor", "comercial", "consultor", "suporte", "contato", "telefone de voces", "ligar", "demonstracao", "demo"],
+      "answer": "Claro! Deixe seu nome e WhatsApp que nossa equipe entra em contato.",
+      "action": "lead_form",
+      "suggestions": []
+    },
+    {
+      "id": "how_to_book", "audience": "customer", "intent": "booking",
+      "keywords": ["agendar", "marcar", "como agendar", "como marcar", "quero marcar", "quero agendar", "reservar", "fazer um agendamento", "agendamento"],
+      "answer": "Pela página de agendamento do estabelecimento você escolhe o serviço, o profissional (ou \"qualquer um\") e um horário livre, informa nome e telefone e confirma. Se houver sinal, o Pix aparece na hora. Você recebe um link para acompanhar, remarcar ou cancelar.",
+      "action": "booking_link",
+      "suggestions": ["Horários disponíveis", "Formas de pagamento", "Remarcar horário"]
+    },
+    {
+      "id": "find_clinic", "audience": "customer", "intent": "booking",
+      "keywords": ["nao tenho o link", "qual o link", "encontrar clinica", "procurar clinica", "lista de clinicas", "perto de mim", "onde encontro"],
+      "answer": "O agendamento é feito pela página de cada estabelecimento (um link do tipo {{site_url}}/b/nome-do-local). Peça o link ao estabelecimento ou procure na bio do Instagram ou no WhatsApp dele. Não temos uma busca de estabelecimentos.",
+      "suggestions": ["Como agendar?"]
+    },
+    {
+      "id": "reschedule", "audience": "customer", "intent": "manage",
+      "keywords": ["remarcar", "mudar horario", "trocar horario", "alterar horario", "mudar data", "outro dia", "adiar", "reagendar"],
+      "answer": "Use o link de gestão que você recebeu ao agendar ({{site_url}}/agendamento/...): lá dá para escolher outro horário livre, respeitando a antecedência mínima do estabelecimento. Se agendou pelo WhatsApp, também dá para remarcar por lá.",
+      "suggestions": ["Cancelar agendamento", "Não achei o link"]
+    },
+    {
+      "id": "cancel_booking", "audience": "customer", "intent": "manage",
+      "keywords": ["cancelar", "desmarcar", "cancelamento", "nao vou poder ir", "nao posso ir", "desistir"],
+      "answer": "Pelo link de gestão que você recebeu ao agendar, toque em cancelar. Cada estabelecimento define até quando dá para cancelar online; depois desse prazo, fale direto com ele. Sobre devolução de sinal, a regra é do estabelecimento.",
+      "suggestions": ["Remarcar horário", "Não achei o link"]
+    },
+    {
+      "id": "lost_link", "audience": "customer", "intent": "manage",
+      "keywords": ["nao achei o link", "perdi o link", "nao recebi", "link de gestao", "cade o link", "nao encontro o link"],
+      "answer": "O link de gestão vai na confirmação do agendamento (WhatsApp ou e-mail informado). Se não encontrar, fale com o estabelecimento: ele consegue remarcar ou cancelar para você.",
+      "action": "contact_company",
+      "suggestions": ["Como agendar?"]
+    },
+    {
+      "id": "payment_customer", "audience": "customer", "intent": "payment",
+      "keywords": ["forma de pagamento", "formas de pagamento", "pagamento", "pagar", "pix", "sinal", "cartao", "dinheiro", "boleto", "deposito", "taxa"],
+      "answer": "Quando o serviço exige sinal, o pagamento online é por Pix (QR code ou copia e cola) e o horário fica reservado por alguns minutos até a confirmação; sem pagamento, a reserva expira. O restante do valor e outras formas de pagamento são combinados direto com o estabelecimento.",
+      "suggestions": ["Como agendar?", "Cancelar agendamento"]
+    },
+    {
+      "id": "confirmation_customer", "audience": "customer", "intent": "manage",
+      "keywords": ["confirmacao", "confirmado", "lembrete", "recebi uma mensagem", "mensagem do whatsapp", "parar de receber", "parar mensagens"],
+      "answer": "Você recebe a confirmação e um lembrete antes do horário. Pelo WhatsApp, responda PARAR para não receber mais mensagens (e VOLTAR para reativar).",
+      "suggestions": ["Remarcar horário", "Cancelar agendamento"]
+    },
+    {
+      "id": "privacy_customer", "audience": "customer", "intent": "privacy",
+      "keywords": ["meus dados", "lgpd", "privacidade", "apagar meus dados", "excluir meus dados", "dados pessoais"],
+      "answer": "Seus dados (nome e telefone) são usados para o agendamento e os avisos sobre ele. Para acessar, corrigir ou excluir, fale com o estabelecimento, que é o responsável pelos seus dados. Veja também {{site_privacy_url}}",
+      "suggestions": ["Como agendar?"]
+    },
+    {
+      "id": "availability", "audience": "customer", "intent": "availability",
+      "keywords": ["horario disponivel", "horarios disponiveis", "tem horario", "tem vaga", "vagas", "disponibilidade", "horario livre", "horarios livres", "amanha tem", "hoje tem", "proximo horario"],
+      "answer": "Consigo mostrar os próximos horários livres quando você está na página de um estabelecimento.",
+      "action": "availability",
+      "suggestions": ["Como agendar?"]
+    },
+    {
+      "id": "services_prices", "audience": "customer", "intent": "company_info",
+      "keywords": ["servicos", "quais servicos", "quanto custa", "preco", "precos", "valor", "valores", "tabela"],
+      "answer": "Os serviços e preços aparecem na página de agendamento de cada estabelecimento.",
+      "action": "company_services",
+      "suggestions": ["Horários disponíveis", "Como agendar?"]
+    },
+    {
+      "id": "company_info", "audience": "customer", "intent": "company_info",
+      "keywords": ["endereco", "onde fica", "localizacao", "telefone", "contato", "horario de funcionamento", "abre", "fecha", "funciona", "instagram"],
+      "answer": "Endereço, telefone e horários de funcionamento aparecem na página do estabelecimento.",
+      "action": "company_info",
+      "suggestions": ["Horários disponíveis", "Como agendar?"]
+    },
+    {
+      "id": "human_customer", "audience": "customer", "intent": "handoff",
+      "keywords": ["falar com alguem", "falar com uma pessoa", "atendente", "humano", "falar com a clinica", "falar com o estabelecimento", "reclamacao", "problema"],
+      "answer": "Para falar com uma pessoa, entre em contato direto com o estabelecimento.",
+      "action": "contact_company",
+      "suggestions": []
+    },
+    {
+      "id": "bye", "audience": "both", "intent": "bye",
+      "keywords": ["tchau", "ate mais", "falou", "encerrar", "sair", "bye"],
+      "answer": "Até mais! Se precisar, é só voltar aqui."
+    }
+  ]
+}
