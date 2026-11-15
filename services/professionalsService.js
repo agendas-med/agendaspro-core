@@ -1,7 +1,7 @@
 const functions = require('../utils/functions');
 const plans = require('./plansService');
 const { HttpError } = require('../middleware/errorHandler');
-const { wallMinutes, minutesToWall, timeToMinutes, dbWall } = require('../utils/time');
+const { wallMinutes, minutesToWall, timeToMinutes } = require('../utils/time');
 
 // Profissionais, expediente e bloqueios. Toda consulta é filtrada por company_id (da sessão).
 const notFound = () => new HttpError(404, 'Profissional não encontrado.');
@@ -136,14 +136,19 @@ const professionalsService = {
   },
 
   // ---- Bloqueios / feriados ----
-  async listBlocks(companyId, { from, to, professional_id: professionalId } = {}) {
+  // professional_id: bloqueios do profissional + bloqueios da empresa inteira (professional_id NULL);
+  // include_company_blocks=false deixa só os do profissional. Horas de parede formatadas no SQL.
+  async listBlocks(companyId, { from, to, professional_id: professionalId, include_company_blocks: includeCompany = true } = {}) {
     const params = [companyId];
-    let sql = 'SELECT id, professional_id, starts_at, ends_at, reason FROM time_blocks WHERE company_id = ?';
-    if (professionalId) { sql += ' AND (professional_id = ? OR professional_id IS NULL)'; params.push(professionalId); }
+    let sql = `SELECT id, professional_id, DATE_FORMAT(starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
+      DATE_FORMAT(ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at, reason FROM time_blocks WHERE company_id = ?`;
+    if (professionalId) {
+      sql += includeCompany === false ? ' AND professional_id = ?' : ' AND (professional_id = ? OR professional_id IS NULL)';
+      params.push(professionalId);
+    }
     if (from) { sql += ' AND ends_at > ?'; params.push(normalizeWall(from)); }
     if (to) { sql += ' AND starts_at < ?'; params.push(normalizeWall(to)); }
-    const rows = await functions.executeSql(`${sql} ORDER BY starts_at, id LIMIT 1000`, params);
-    return rows.map(row => ({ ...row, starts_at: dbWall(row.starts_at), ends_at: dbWall(row.ends_at) }));
+    return functions.executeSql(`${sql} ORDER BY time_blocks.starts_at, id LIMIT 1000`, params);
   },
 
   async createBlock(companyId, data) {

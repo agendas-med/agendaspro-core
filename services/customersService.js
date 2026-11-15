@@ -97,8 +97,8 @@ let customersService = {
                 `
                     SELECT 
                         c.*,
-                        (SELECT a.date FROM appointment_status_view a WHERE a.customer_id = c.id AND a.status <> "agendado" ORDER BY id DESC LIMIT 1) AS last_appointment,
-                        (SELECT a.date FROM appointment_status_view a WHERE a.customer_id = c.id AND a.status = "agendado" ORDER BY id DESC LIMIT 1) AS next_appointment
+                        (SELECT DATE_FORMAT(a.date, '%Y-%m-%d %H:%i:%s') FROM appointment_status_view a WHERE a.customer_id = c.id AND a.status <> "agendado" ORDER BY id DESC LIMIT 1) AS last_appointment,
+                        (SELECT DATE_FORMAT(a.date, '%Y-%m-%d %H:%i:%s') FROM appointment_status_view a WHERE a.customer_id = c.id AND a.status = "agendado" ORDER BY id DESC LIMIT 1) AS next_appointment
                     FROM customers c 
                     WHERE c.company_id = ?
                 `, 

@@ -1,6 +1,8 @@
 const functions = require('../utils/functions');
 const { transition } = require('../utils/appointmentState');
+const { dbWall, minutesToWall, wallMinutes } = require('../utils/time');
 const addressFields = ['zip_code', 'address', 'number', 'complement', 'city', 'state'];
+const WALL_FIELDS = ["date", 'checkin', 'checkout'].map(col => `DATE_FORMAT(a.${col}, '%Y-%m-%d %H:%i:%s') AS _wall_${col}`).join(', ');
 
 async function validateItems(query, companyId, customerId, services, address) {
   const customers = await query('SELECT id FROM customers WHERE id = ? AND company_id = ?', [customerId, companyId]);
@@ -168,22 +170,33 @@ const appointmentsService = {
   async getAppointmentServices(id) {
     return functions.executeSql('SELECT s.*, aps.quantity FROM appointment_services aps JOIN services s ON s.id = aps.service_id WHERE aps.appointment_id = ?', [id]);
   },
+  // F4: date/start/end/checkin/checkout saem como hora de parede "YYYY-MM-DD HH:mm:ss" (sem offset),
+  // formatadas no SQL (DATE_FORMAT não depende do timezone do pool). Antes: Date + ISO com Z.
   async decorate(appointment) {
     const services = await this.getAppointmentServices(appointment.id);
-    const start = appointment.date;
-    const end = new Date(new Date(start).getTime() + appointment.duration * 60000).toISOString();
-    return { ...appointment, services, start, end, title: `${services[0]?.name || ''} - ${appointment.first_name}` };
+    const { _wall_date, _wall_checkin, _wall_checkout, ...row } = appointment;
+    const start = _wall_date || (row.date ? dbWall(row.date) : null);
+    const end = start ? minutesToWall(wallMinutes(start) + Number(row.duration || 0)) : null;
+    return {
+      ...row, date: start, checkin: _wall_checkin ?? null, checkout: _wall_checkout ?? null,
+      services, start, end, title: `${services[0]?.name || ''} - ${row.first_name}`,
+    };
   },
   async getById(id, companyId) {
-    const [appointment] = await functions.executeSql(`SELECT c.image, a.*, SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
+    const [appointment] = await functions.executeSql(`SELECT c.image, a.*, ${WALL_FIELDS}, SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
       FROM appointment_status_view a JOIN customers c ON c.id = a.customer_id WHERE a.id = ? AND a.company_id = ?`, [id, companyId]);
     if (!appointment) throw new Error('Agendamento não encontrado.');
     return this.decorate(appointment);
   },
   async getAllByCompany(companyId, clearCache = false, targetDate = null, range = {}) {
-    let sql = `SELECT c.image, a.*, SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
+    let sql = `SELECT c.image, a.*, ${WALL_FIELDS}, SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
       FROM appointment_status_view a JOIN customers c ON c.id = a.customer_id WHERE a.company_id = ?`;
     const params = [companyId];
+    // ?professional_id=N: só os agendamentos do profissional; include_unassigned=true soma os sem profissional.
+    if (range.professionalId) {
+      sql += range.includeUnassigned ? ' AND (a.professional_id = ? OR a.professional_id IS NULL)' : ' AND a.professional_id = ?';
+      params.push(range.professionalId);
+    }
     if (targetDate === true || targetDate === 'true') sql += ' AND DATE(a.date) = CURDATE()';
     else if (targetDate && targetDate !== 'false') { sql += ' AND DATE(a.date) = ?'; params.push(targetDate); }
     // Intervalo ?start=&end=, sempre dentro da empresa. Data pura: end inclusivo (dia inteiro).

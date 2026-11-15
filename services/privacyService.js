@@ -17,7 +17,7 @@ async function exportCustomer(company_id, customer_id) {
     );
     if (!customer) throw NOT_FOUND();
     const [appointments, sales, payments, consents] = await Promise.all([
-        functions.executeSql(`SELECT id, date, duration, observations, canceled, zip_code, address, number, complement, city, state, payment_status FROM appointments WHERE customer_id = ? AND company_id = ? ORDER BY date`, [customer_id, company_id]),
+        functions.executeSql(`SELECT id, DATE_FORMAT(date, '%Y-%m-%d %H:%i:%s') AS date, duration, observations, canceled, zip_code, address, number, complement, city, state, payment_status FROM appointments WHERE customer_id = ? AND company_id = ? ORDER BY date`, [customer_id, company_id]),
         functions.executeSql(`SELECT id, appointment_id, create_date, status FROM sales WHERE customer_id = ? AND company_id = ? ORDER BY create_date`, [customer_id, company_id]),
         functions.executeSql(`SELECT id, sale_id, amount, payment_type, create_date FROM payments WHERE customer_id = ? AND company_id = ? ORDER BY create_date`, [customer_id, company_id]),
         functions.executeSql(`SELECT purpose, granted, source, granted_at, revoked_at FROM consents WHERE customer_id = ? AND company_id = ? ORDER BY granted_at`, [customer_id, company_id]),

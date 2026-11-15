@@ -78,12 +78,18 @@ router.get("/:id", login, validate.validateCompanyAccess, (req, res, next) => {
 // Obter todos os agendamentos da empresa
 router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
     let today = req.query.today || null
+    const rawPro = req.query.professional_id;
+    const professionalId = rawPro === undefined || rawPro === '' ? null : Number(rawPro);
+    if (professionalId !== null && !(Number.isInteger(professionalId) && professionalId > 0)) {
+        return sendError(req, res, new Error('professional_id inválido.'), 400, { text: true });
+    }
+    const includeUnassigned = ['true', '1'].includes(String(req.query.include_unassigned || '').toLowerCase());
 
     _appointmentsService.getAllByCompany(
         req.headers['selected-company'],
         false,
         today,
-        { start: req.query.start, end: req.query.end }
+        { start: req.query.start, end: req.query.end, professionalId, includeUnassigned }
     ).then((appointments) => {
         let response = functions.createResponse("Lista de agendamentos", appointments, "GET", 200);
         return res.status(200).send(response);

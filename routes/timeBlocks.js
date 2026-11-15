@@ -13,7 +13,7 @@ const createSchema = Joi.object({
   ends_at: wall.required(),
   reason: Joi.string().trim().max(160).allow(null, ''),
 });
-const listQuery = Joi.object({ from: wall, to: wall, professional_id: id });
+const listQuery = Joi.object({ from: wall, to: wall, professional_id: id, include_company_blocks: Joi.boolean().truthy('1').falsy('0').default(true) });
 
 router.get('/', ...member, validateQuery(listQuery), handle(req => professionals.listBlocks(req.companyId, req.validQuery)));
 router.post('/', ...admin, validateBody(createSchema), handle(async req => ({ __status: 201, data: await professionals.createBlock(req.companyId, req.body) })));

@@ -174,7 +174,25 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       const [row] = await sql('SELECT id, professional_id FROM appointments WHERE company_id = ? AND date = ?', [A.companyId, '2027-03-10 09:00:00']);
       assert.equal(row.professional_id, proA.id);
       const listed = await A.as('GET', '/appointments?start=2027-03-10&end=2027-03-10');
-      assert.equal((listed.returnObj || listed.data).find(a => a.id === row.id).professional_id, proA.id);
+      const item = (listed.returnObj || listed.data).find(a => a.id === row.id);
+      assert.equal(item.professional_id, proA.id);
+      // F4: hora de parede sem offset (não depende do timezone do pool).
+      assert.deepEqual([item.date, item.start, item.end], ['2027-03-10 09:00:00', '2027-03-10 09:00:00', '2027-03-10 09:30:00']);
+      assert.equal((await A.as('GET', `/appointments/${row.id}`)).returnObj.start, '2027-03-10 09:00:00');
+      // F4: filtro professional_id (sem include_unassigned só os do profissional).
+      await A.as('POST', '/appointments', appointment('2027-03-10 14:00:00'));
+      const byPro = (await A.as('GET', `/appointments?start=2027-03-10&end=2027-03-10&professional_id=${proA.id}`)).returnObj;
+      assert.deepEqual(byPro.map(a => a.professional_id), [proA.id]);
+      const withFree = (await A.as('GET', `/appointments?start=2027-03-10&end=2027-03-10&professional_id=${proA.id}&include_unassigned=true`)).returnObj;
+      assert.equal(withFree.length, 2);
+      assert.equal((await B.as('GET', `/appointments?professional_id=${proA.id}`)).returnObj.length, 0);
+      await A.as('GET', '/appointments?professional_id=abc', undefined, 400);
+      // F4: bloqueios da empresa entram por padrão no filtro por profissional; include_company_blocks=false exclui.
+      const companyBlock = (await A.as('POST', '/time-blocks', { starts_at: '2027-03-10 15:00', ends_at: '2027-03-10 16:00', reason: 'Reunião' }, 201)).data;
+      const proBlocks = q => A.as('GET', `/time-blocks?from=2027-03-10%2000:00&to=2027-03-11%2000:00&professional_id=${proA.id}${q}`).then(r => r.data.map(b => b.id));
+      assert.deepEqual(await proBlocks(''), [block.id, companyBlock.id]);
+      assert.deepEqual(await proBlocks('&include_company_blocks=false'), [block.id]);
+      await A.as('DELETE', `/time-blocks/${companyBlock.id}`);
       await A.as('PATCH', `/appointments/${row.id}`, appointment('2027-03-10 10:00:00', { professional_id: proB.id }), 400);
       // Sem profissional: regra legada (sem expediente) continua funcionando.
       await A.as('POST', '/appointments', appointment('2027-03-11 08:00:00'));

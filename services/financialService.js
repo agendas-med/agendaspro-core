@@ -14,7 +14,7 @@ let financialService = {
                         a.customer_name,
                         c.image AS customer_image,
                         c.tel AS customer_tel,
-                        a.date AS due_date,
+                        DATE_FORMAT(a.date, '%Y-%m-%d %H:%i:%s') AS due_date,
                         SUM(s.value * aps.quantity) AS value,
                         CASE 
                             WHEN a.payment_status = 'pago' THEN "Pago"
