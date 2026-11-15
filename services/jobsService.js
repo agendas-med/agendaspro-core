@@ -146,7 +146,34 @@ function drainSoon({ windowSec = Number(process.env.JOBS_DRAIN_THROTTLE_SEC) || 
   });
 }
 
-module.exports = { register, registerProducer, enqueue, claim, tick, drainSoon, backoffSeconds, _handlers: handlers, _producers: producers };
+// F4: executa já um job específico (resposta do bot sem esperar o tick). Claim atômico pelo
+// dedupe_key: se outro processo pegou antes, não faz nada. A linha do job continua sendo a
+// rede de segurança (queda no meio -> lock vence -> tick reprocessa).
+async function runNow(dedupeKey) {
+  if (!dedupeKey) return null;
+  const lockToken = randomToken(16);
+  const result = await functions.executeSql(
+    `UPDATE jobs SET status = 'running', lock_token = ?, locked_until = NOW() + INTERVAL ? MINUTE, attempts = attempts + 1
+      WHERE dedupe_key = ? AND status = 'pending' AND due_at <= NOW()`,
+    [lockToken, LOCK_MINUTES, dedupeKey],
+  );
+  if (!result.affectedRows) return null;
+  const [job] = await functions.executeSql(`SELECT id, type, payload, attempts, max_attempts FROM jobs WHERE lock_token = ?`, [lockToken]);
+  if (!job) return null;
+  const handler = handlers.get(job.type);
+  try {
+    if (!handler) throw new Error(`Sem handler para o tipo ${job.type}`);
+    let payload = {};
+    try { payload = job.payload ? JSON.parse(job.payload) : {}; } catch { payload = {}; }
+    await handler(payload, job);
+    await complete(job);
+    return "done";
+  } catch (error) {
+    return failOrRetry(job, error);
+  }
+}
+
+module.exports = { register, registerProducer, enqueue, claim, tick, drainSoon, runNow, backoffSeconds, _handlers: handlers, _producers: producers };
 
 // Registro padrão.
 const notificationService = require("./notificationService");
@@ -159,3 +186,5 @@ registerProducer("appointment_reminders_2h", (jobs) => notificationService.enque
 const publicNotifications = require("./publicNotifications");
 register("lead_notify", publicNotifications.leadNotify);
 register("booking_confirmation", publicNotifications.bookingConfirmation);
+// F4: WhatsApp Cloud API (mensagens recebidas e status de entrega do webhook /webhook/meta).
+register("whatsapp_inbound", (payload, job) => require("./whatsapp/inbound").handle(payload, job));
