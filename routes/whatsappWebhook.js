@@ -28,25 +28,24 @@ router.post('/', express.raw({ type: '*/*', limit: '1mb' }), async (req, res) =>
 
   const { messages, statuses } = parseWebhook(payload);
   const keys = [];
+  // Registra o evento (dedupe) e enfileira. Se enfileirar falhar, desfaz o registro para que a
+  // reentrega da Meta (após o 500) não seja descartada como duplicada.
+  const register = async (externalId, eventType, payloadJob, maxAttempts) => {
+    const stored = await functions.executeSql(
+      "INSERT IGNORE INTO inbound_events (provider, external_id, event_type, payload, status) VALUES ('meta', ?, ?, NULL, 'processed')", [externalId, eventType]);
+    if (!stored.affectedRows) return; // reentrega da Meta: já enfileirado
+    const key = `wa_in:${externalId}`.slice(0, 191);
+    try {
+      await jobsService.enqueue('whatsapp_inbound', payloadJob, { dedupeKey: key, maxAttempts });
+    } catch (error) {
+      await functions.executeSql("DELETE FROM inbound_events WHERE provider = 'meta' AND external_id = ?", [externalId]).catch(() => {});
+      throw error;
+    }
+    keys.push(key);
+  };
   try {
-    for (const item of messages) {
-      const externalId = `msg:${item.wamid}`.slice(0, 191);
-      const stored = await functions.executeSql(
-        "INSERT IGNORE INTO inbound_events (provider, external_id, event_type, payload, status) VALUES ('meta', ?, 'message', NULL, 'processed')", [externalId]);
-      if (!stored.affectedRows) continue; // reentrega da Meta: já enfileirado
-      const key = `wa_in:${externalId}`.slice(0, 191);
-      await jobsService.enqueue('whatsapp_inbound', { kind: 'message', item }, { dedupeKey: key, maxAttempts: 5 });
-      keys.push(key);
-    }
-    for (const item of statuses) {
-      const externalId = `st:${item.wamid}:${item.status}`.slice(0, 191);
-      const stored = await functions.executeSql(
-        "INSERT IGNORE INTO inbound_events (provider, external_id, event_type, payload, status) VALUES ('meta', ?, 'status', NULL, 'processed')", [externalId]);
-      if (!stored.affectedRows) continue;
-      const key = `wa_in:${externalId}`.slice(0, 191);
-      await jobsService.enqueue('whatsapp_inbound', { kind: 'status', item }, { dedupeKey: key, maxAttempts: 3 });
-      keys.push(key);
-    }
+    for (const item of messages) await register(`msg:${item.wamid}`.slice(0, 191), 'message', { kind: 'message', item }, 5);
+    for (const item of statuses) await register(`st:${item.wamid}:${item.status}`.slice(0, 191), 'status', { kind: 'status', item }, 3);
   } catch (error) {
     console.error('[meta-webhook] Falha ao registrar evento:', error?.code || 'erro');
     return res.status(500).send({ message: 'Erro ao registrar evento.' });
