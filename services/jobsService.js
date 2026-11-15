@@ -155,3 +155,7 @@ registerProducer("appointment_reminders", (jobs) => notificationService.enqueueD
 // F2: lembrete 2h (Premium), mesma regra de janela tolerante a atraso.
 register("appointment_reminder_2h", notificationService.sendAppointmentReminder2h);
 registerProducer("appointment_reminders_2h", (jobs) => notificationService.enqueueDueReminders2h(jobs));
+// F3: avisos da API pública (lead -> comercial; confirmação de agendamento -> cliente).
+const publicNotifications = require("./publicNotifications");
+register("lead_notify", publicNotifications.leadNotify);
+register("booking_confirmation", publicNotifications.bookingConfirmation);

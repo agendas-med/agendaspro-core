@@ -77,7 +77,13 @@ const paymentsService = {
       await record(query, sale, Number(payment.value), 'pix_asaas', payment.id);
       await query('UPDATE sales SET pix_asaas_id = NULL, pix_payload = NULL, pix_expiration_date = NULL, pix_encoded_image = NULL WHERE id = ?', [sale.id]);
       await billing.setCommissionStatus(query, payment.id, 'settled');
-      return { received: true };
+      // F3: sinal de agendamento público pago -> libera a retenção (lazy require evita ciclo).
+      const deposit = await require('./publicBookingService').onDepositPaid(query, sale);
+      return { received: true, deposit };
+    }).then(async result => {
+      if (result?.deposit?.confirmed) await require('./publicBookingService').enqueueConfirmation(result.deposit.appointmentId);
+      const { deposit, ...rest } = result || {};
+      return rest;
     });
   },
   // Eventos que não são recebimento. Todos idempotentes (reentrega não muda o resultado).
