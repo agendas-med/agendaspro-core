@@ -122,6 +122,18 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       await A.as('GET', '/professionals/abc', undefined, 400);
       assert.equal((await A.as('GET', `/professionals/${proA.id}`)).data.name, 'Ana');
       await A.as('PATCH', `/professionals/${proA.id}`, { phone: '(11) 98888-7777' });
+      assert.deepEqual(Object.keys(proA).sort(), ['active', 'color', 'email', 'id', 'name', 'phone', 'photo_url', 'service_ids', 'user_id']);
+
+      // Reativar conta na quota: desativa Ana, cria Bia, reativar Ana estoura o Free.
+      assert.deepEqual((await A.as('DELETE', `/professionals/${proA.id}`)).data, { deactivated: true });
+      const bia = (await A.as('POST', '/professionals', { name: 'Bia' }, 201)).data;
+      const reactivate = await A.as('PATCH', `/professionals/${proA.id}`, { active: true }, 402);
+      assert.equal(reactivate.error.quota, 'max_professionals');
+      await A.as('DELETE', `/professionals/${bia.id}`);
+      assert.equal((await A.as('PATCH', `/professionals/${proA.id}`, { active: true })).data.active, true);
+      assert.deepEqual((await A.as('GET', '/professionals')).data.map(p => p.id), [proA.id]);
+      const all = (await A.as('GET', '/professionals?include_inactive=true')).data;
+      assert.deepEqual(all.map(p => [p.id, p.active]).sort((x, y) => x[0] - y[0]), [[proA.id, true], [bia.id, false]]);
     });
 
     await t.test('expediente e bloqueios: validação, isolamento e conflito no agendamento', async () => {
@@ -131,7 +143,18 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       await A.as('POST', '/availability-rules', { professional_id: proA.id, weekday: 3, start_time: '15:00', end_time: '14:00' }, 400);
       await B.as('POST', '/availability-rules', { professional_id: proA.id, weekday: 1, start_time: '09:00', end_time: '12:00' }, 404);
       await B.as('PUT', `/availability-rules/professional/${proA.id}`, { rules: [] }, 404);
+      await A.as('PUT', `/availability-rules/professional/${proA.id}`, { rules: [
+        { weekday: 3, start_time: '09:00', end_time: '12:00' }, { weekday: 3, start_time: '11:00', end_time: '13:00' },
+      ] }, 400);
+      const replaced = (await A.as('PUT', `/availability-rules/professional/${proA.id}`, { rules: [
+        { weekday: 4, start_time: '13:00', end_time: '24:00' }, { weekday: 3, start_time: '09:00', end_time: '12:00' },
+      ] })).data;
+      assert.deepEqual(replaced.map(({ id, ...r }) => r), [
+        { professional_id: proA.id, weekday: 3, start_time: '09:00', end_time: '12:00' },
+        { professional_id: proA.id, weekday: 4, start_time: '13:00', end_time: '24:00' },
+      ]);
       const ruleA = (await A.as('GET', `/availability-rules?professional_id=${proA.id}`)).data[0];
+      assert.deepEqual(Object.keys(ruleA).sort(), ['end_time', 'id', 'professional_id', 'start_time', 'weekday']);
       assert.equal((await B.as('GET', '/availability-rules')).data.length, 0);
       await B.as('DELETE', `/availability-rules/${ruleA.id}`, undefined, 404);
 
@@ -140,7 +163,8 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       await B.as('POST', '/time-blocks', { professional_id: proA.id, starts_at: '2027-03-10 11:00', ends_at: '2027-03-10 12:00' }, 404);
       assert.equal((await B.as('GET', '/time-blocks')).data.length, 0);
       await B.as('DELETE', `/time-blocks/${block.id}`, undefined, 404);
-      assert.equal((await A.as('GET', '/time-blocks?from=2027-03-10%2000:00&to=2027-03-11%2000:00')).data.length, 1);
+      const listedBlocks = (await A.as('GET', '/time-blocks?from=2027-03-10%2000:00&to=2027-03-11%2000:00')).data;
+      assert.deepEqual(listedBlocks, [{ id: block.id, professional_id: proA.id, starts_at: '2027-03-10 11:00:00', ends_at: '2027-03-10 12:00:00', reason: 'Médico' }]);
 
       await A.as('POST', '/appointments', appointment('2027-03-10 08:00:00', { professional_id: proA.id }), 400); // fora do expediente
       await A.as('POST', '/appointments', appointment('2027-03-10 11:30:00', { professional_id: proA.id }), 400); // bloqueio
@@ -149,6 +173,8 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       await A.as('POST', '/appointments', appointment('2027-03-10 09:15:00', { professional_id: proA.id }), 400); // conflito
       const [row] = await sql('SELECT id, professional_id FROM appointments WHERE company_id = ? AND date = ?', [A.companyId, '2027-03-10 09:00:00']);
       assert.equal(row.professional_id, proA.id);
+      const listed = await A.as('GET', '/appointments?start=2027-03-10&end=2027-03-10');
+      assert.equal((listed.returnObj || listed.data).find(a => a.id === row.id).professional_id, proA.id);
       await A.as('PATCH', `/appointments/${row.id}`, appointment('2027-03-10 10:00:00', { professional_id: proB.id }), 400);
       // Sem profissional: regra legada (sem expediente) continua funcionando.
       await A.as('POST', '/appointments', appointment('2027-03-11 08:00:00'));
