@@ -2,7 +2,9 @@ const functions = require('../utils/functions');
 const sales = require('./salesService');
 const asaas = require('./asaasService');
 const { decryptKey } = require('./asaasKeys');
-const cents = value => Math.round(Number(value) * 100);
+const billing = require('./billingService');
+const { toCents, centsToDecimal } = require('../utils/money');
+const cents = value => (value === null || value === undefined || value === '' ? 0 : toCents(value));
 
 async function record(query, sale, amount, paymentType, externalId = null) {
   await query('INSERT INTO payments (company_id, sale_id, customer_id, amount, payment_type, external_id) VALUES (?, ?, ?, ?, ?, ?)',
@@ -33,11 +35,14 @@ const paymentsService = {
       if (!company?.asaas_api_key || company.asaas_status !== 'APPROVED') throw new Error('Configure e aprove a conta Asaas antes de gerar o Pix.');
       const [customer] = await query('SELECT name, cpf, tel, email FROM customers WHERE id = ? AND company_id = ?', [sale.customer_id, companyId]);
       const customerId = await asaas.getOrCreateCustomer(customer, decryptKey(company.asaas_api_key));
-      const pix = await asaas.createPixCharge({ customerAsaasId: customerId, value: amount,
+      // Comissão da plataforma conforme o plano efetivo (5% Free / 0,5% Premium), em centavos.
+      const commission = await billing.commissionFor(companyId, toCents(data.amount), { query });
+      const pix = await asaas.createPixCharge({ customerAsaasId: customerId, value: centsToDecimal(commission.gross_cents), split: commission.split,
         externalReference: `SALE_${sale.id}`, description: `Venda #${sale.id} no AgendasPRO` }, decryptKey(company.asaas_api_key));
       try {
         await query('UPDATE sales SET pix_asaas_id = ?, pix_payload = ?, pix_expiration_date = ?, pix_encoded_image = ? WHERE id = ? AND company_id = ?', [pix.paymentId, pix.payload, pix.expirationDate, pix.encodedImage, sale.id, companyId]);
         await query("INSERT INTO accounts_receivable (sale_id, customer_id, amount, payment_type, status) VALUES (?, ?, ?, 'pix_asaas', 'EM ABERTO')", [sale.id, sale.customer_id, amount]);
+        await billing.recordCommission(query, { companyId, saleId: sale.id, providerPaymentId: pix.paymentId, commission });
       } catch (error) {
         await asaas.cancelCharge(pix.paymentId, decryptKey(company.asaas_api_key)).catch(() => {});
         throw error;
@@ -71,6 +76,7 @@ const paymentsService = {
       if (!pending.amount || cents(pending.amount) !== cents(payment.value)) throw new Error('Valor recebido difere da cobrança registrada.');
       await record(query, sale, Number(payment.value), 'pix_asaas', payment.id);
       await query('UPDATE sales SET pix_asaas_id = NULL, pix_payload = NULL, pix_expiration_date = NULL, pix_encoded_image = NULL WHERE id = ?', [sale.id]);
+      await billing.setCommissionStatus(query, payment.id, 'settled');
       return { received: true };
     });
   },
@@ -83,6 +89,7 @@ const paymentsService = {
       if (!sale) return { ignored: true };
       await query("DELETE FROM accounts_receivable WHERE sale_id = ? AND payment_type = 'pix_asaas' AND status = 'EM ABERTO'", [sale.id]);
       await query('UPDATE sales SET pix_asaas_id = NULL, pix_payload = NULL, pix_expiration_date = NULL, pix_encoded_image = NULL WHERE id = ?', [sale.id]);
+      await billing.setCommissionStatus(query, payment.id, 'canceled');
       return { expired: true };
     });
   },
@@ -94,6 +101,7 @@ const paymentsService = {
       if (!row) return { ignored: true };
       const refunded = status === 'REFUNDED' || status === 'PARTIALLY_REFUNDED';
       await query('UPDATE payments SET external_status = ?, refunded_at = IF(?, COALESCE(refunded_at, NOW()), refunded_at) WHERE id = ?', [status, refunded ? 1 : 0, row.id]);
+      if (status === 'REFUNDED') await billing.setCommissionStatus(query, payment.id, 'refunded');
       if (row.appointment_id && refunded) await query("UPDATE appointments SET payment_status = 'estornado' WHERE id = ? AND company_id = ?", [row.appointment_id, row.company_id]);
       return { updated: true };
     });

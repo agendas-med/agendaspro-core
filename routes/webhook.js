@@ -45,8 +45,12 @@ const REVERSAL = {
     PAYMENT_AWAITING_CHARGEBACK_REVERSAL: "AWAITING_CHARGEBACK_REVERSAL",
 };
 
-async function handleAsaasEvent(event, payment) {
+async function handleAsaasEvent(event, payment, subscription) {
     const payments = require('../services/paymentsService');
+    const billing = require('../services/billingService');
+    // Assinatura da plataforma: casada pelo id da assinatura guardado (não pelo externalReference).
+    if (event.startsWith('SUBSCRIPTION_')) return billing.handleSubscriptionEvent(event, subscription);
+    if (payment?.subscription) return billing.handleSubscriptionPayment(event, payment);
     if (!payment?.externalReference?.match(/^(APP|SALE)_/)) return { ignored: true };
     if (RECEIVED.has(event)) return payments.confirm(payment);
     if (EXPIRED.has(event)) return payments.expire(payment);
@@ -58,19 +62,20 @@ router.post("/asaas", require('../middleware/asaasAuth'), async (req, res) => {
     jobsService.drainSoon();
     const event = typeof req.body?.event === 'string' ? req.body.event.slice(0, 100) : '';
     const payment = req.body?.payment;
-    const externalId = String(req.body?.id || (payment?.id ? `${event}:${payment.id}` : '')).slice(0, 191);
+    const subscription = req.body?.subscription && typeof req.body.subscription === 'object' ? req.body.subscription : null;
+    const externalId = String(req.body?.id || (payment?.id ? `${event}:${payment.id}` : (subscription?.id ? `${event}:${subscription.id}` : ''))).slice(0, 191);
     if (!event || !externalId) return res.status(400).send({ message: "Evento inválido." });
 
     try {
         await functions.executeSql(
             `INSERT IGNORE INTO inbound_events (provider, external_id, event_type, payload) VALUES ('asaas', ?, ?, ?)`,
-            [externalId, event, JSON.stringify({ event, payment: payment ? { id: payment.id, externalReference: payment.externalReference, value: payment.value, status: payment.status } : null })]
+            [externalId, event, JSON.stringify({ event, payment: payment ? { id: payment.id, externalReference: payment.externalReference, value: payment.value, status: payment.status, subscription: payment.subscription, dueDate: payment.dueDate } : null, subscription: subscription ? { id: subscription.id, status: subscription.status } : null })]
         );
         const [stored] = await functions.executeSql(`SELECT id, status FROM inbound_events WHERE provider = 'asaas' AND external_id = ?`, [externalId]);
         if (stored.status === 'processed' || stored.status === 'ignored') return res.status(200).send({ received: true, duplicate: true });
 
         try {
-            const outcome = await handleAsaasEvent(event, payment);
+            const outcome = await handleAsaasEvent(event, payment, subscription);
             await functions.executeSql(
                 `UPDATE inbound_events SET status = ?, attempts = attempts + 1, processed_at = NOW(), last_error = NULL WHERE id = ?`,
                 [outcome?.ignored ? 'ignored' : 'processed', stored.id]

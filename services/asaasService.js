@@ -156,8 +156,9 @@ const asaasService = {
         dueDate: today, // OBRIGATÓRIO: Mesmo sendo imediato, exige vencimento
         description: args.description,
         externalReference: args.externalReference,
+        // Split da comissão da plataforma (fixedValue em reais, calculado de centavos pelo chamador).
+        ...(Array.isArray(args.split) && args.split.length ? { split: args.split } : {}),
       };
-
 
       const response = await axios.post(`${ASAAS_URL}/payments`, payload, {
         headers: getHeaders(subaccountApiKey),
@@ -203,12 +204,8 @@ const asaasService = {
           .split("T")[0],
         externalReference: args.externalReference,
         description: args.description,
-        ...(process.env.ASAAS_MAIN_WALLET_ID ? { split: [
-          {
-            walletId: process.env.ASAAS_MAIN_WALLET_ID,
-            percentualValue: 5,
-          },
-        ] } : {}),
+        // Split calculado pelo chamador conforme o plano efetivo (ver billingService.commissionSplit).
+        ...(Array.isArray(args.split) && args.split.length ? { split: args.split } : {}),
       };
 
       const response = await axios.post(`${ASAAS_URL}/payments`, payload, {
@@ -303,6 +300,54 @@ const asaasService = {
         "[Asaas Error - Create Webhook]:",
         safeError(error),
       );
+      throw error;
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // 7. ASSINATURA DA PLATAFORMA (sempre com a API Key PRINCIPAL; a empresa é cliente da plataforma)
+  // Implementado conforme a documentação v3; não exercitado contra a API real.
+  // ---------------------------------------------------------------------------
+  async createPlatformCustomer({ name, cpfCnpj, email, externalReference }) {
+    try {
+      if (cpfCnpj) {
+        const { data } = await axios.get(`${ASAAS_URL}/customers`, { params: { cpfCnpj }, headers: getHeaders(process.env.ASAAS_API_KEY) });
+        if (data?.data?.length) return data.data[0].id;
+      }
+      const { data } = await axios.post(`${ASAAS_URL}/customers`, { name, cpfCnpj: cpfCnpj || undefined, email: email || undefined, externalReference, notificationDisabled: false }, { headers: getHeaders(process.env.ASAAS_API_KEY) });
+      return data.id;
+    } catch (error) {
+      console.error('[Asaas Error - Platform Customer]:', safeError(error));
+      throw error;
+    }
+  },
+
+  async createSubscription({ customer, billingType, value, nextDueDate, description, externalReference }) {
+    try {
+      const { data } = await axios.post(`${ASAAS_URL}/subscriptions`, { customer, billingType, value, nextDueDate, cycle: 'MONTHLY', description, externalReference }, { headers: getHeaders(process.env.ASAAS_API_KEY) });
+      return { id: data.id, nextDueDate: data.nextDueDate, status: data.status };
+    } catch (error) {
+      console.error('[Asaas Error - Create Subscription]:', safeError(error));
+      throw error;
+    }
+  },
+
+  async listSubscriptionPayments(subscriptionId) {
+    try {
+      const { data } = await axios.get(`${ASAAS_URL}/subscriptions/${encodeURIComponent(subscriptionId)}/payments`, { headers: getHeaders(process.env.ASAAS_API_KEY) });
+      return (data?.data || []).map(p => ({ id: p.id, value: p.value, status: p.status, dueDate: p.dueDate, invoiceUrl: p.invoiceUrl, subscription: p.subscription }));
+    } catch (error) {
+      console.error('[Asaas Error - Subscription Payments]:', safeError(error));
+      throw error;
+    }
+  },
+
+  async cancelSubscription(subscriptionId) {
+    try {
+      await axios.delete(`${ASAAS_URL}/subscriptions/${encodeURIComponent(subscriptionId)}`, { headers: getHeaders(process.env.ASAAS_API_KEY) });
+    } catch (error) {
+      if (error?.response?.status === 404) return;
+      console.error('[Asaas Error - Cancel Subscription]:', safeError(error));
       throw error;
     }
   },
