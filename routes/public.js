@@ -26,7 +26,8 @@ router.use(cors({
     return callback(null, false);
   },
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
+  exposedHeaders: ['Retry-After'],
   credentials: false,
   maxAge: 600,
 }));
@@ -199,6 +200,9 @@ router.post('/bookings/:token/cancel', ipLimit('manage', 600, 60), validate(toke
 
 router.post('/bookings/:token/reschedule', ipLimit('manage', 600, 60), validate(tokenParams, 'params'), validate(rescheduleBody, 'body'),
   handle(req => booking.rescheduleByToken(req.valid_params.token, req.valid_body.start)));
+
+// Chat público de texto (F5): PUBLIC_CHAT_ENABLED=true para ligar.
+router.use('/chat', require('./publicChat'));
 
 router.use((req, res) => res.status(404).json({ error: { code: 'not_found', message: 'Não encontrado.' } }));
 
