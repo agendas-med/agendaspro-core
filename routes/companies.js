@@ -10,6 +10,9 @@ const functions = require("../utils/functions");
 const _asaasService = require("../services/asaasService");
 const { decryptKey } = require("../services/asaasKeys");
 const Joi = require("joi");
+const _plansService = require("../services/plansService");
+const { respondError } = require("../middleware/tenant");
+const { isValidTimezone, resolveTimezone } = require("../utils/time");
 
 // Erros de negócio (strings) seguem como antes (texto puro); erros internos viram 500 genérico.
 const fail = (req, res, status = 500) => (error) => sendError(req, res, error, status, { text: typeof error === 'string' });
@@ -88,8 +91,25 @@ router.get("/return_users", ...admin, (req, res) => {
 });
 
 router.post("/invite_user", ...admin, rateLimit({ key: 'invite-user', windowSec: 3600, max: 30 }), validate.validateRequest(validate.schemas.companies.inviteUser), (req, res) => {
-    _companiesService.inviteUser(req.companyId, req.body.name, req.body.id, req.body.email, req.usuario.id, req.body.role)
+    // Quota de usuários da equipe (membros + convites pendentes) conforme o plano efetivo.
+    _plansService.assertQuota(req.companyId, 'max_team_users')
+        .then(() => _companiesService.inviteUser(req.companyId, req.body.name, req.body.id, req.body.email, req.usuario.id, req.body.role))
         .then(() => ok(res, "Convite enviado com sucesso", null, "POST"))
+        .catch((error) => error?.code === 'plan_upgrade_required' ? respondError(req, res, error) : fail(req, res)(error));
+});
+
+// Fuso da empresa (IANA). Datas de agenda são hora de parede nesse fuso; padrão APP_TIMEZONE.
+const timezoneSchema = Joi.object({ timezone: Joi.string().max(64).allow(null).required() });
+router.get("/timezone", ...member, (req, res) => {
+    functions.executeSql('SELECT timezone FROM companies WHERE id = ?', [req.companyId])
+        .then(([row]) => ok(res, "Fuso da empresa", { timezone: row?.timezone || null, effective: resolveTimezone(row?.timezone) }, "GET"))
+        .catch(fail(req, res));
+});
+router.put("/timezone", ...admin, validate.validateRequest(timezoneSchema), (req, res) => {
+    const { timezone } = req.body;
+    if (timezone !== null && !isValidTimezone(timezone)) return res.status(400).send({ message: 'Fuso horário inválido (use um nome IANA, ex.: America/Sao_Paulo).' });
+    functions.executeSql('UPDATE companies SET timezone = ? WHERE id = ?', [timezone, req.companyId])
+        .then(() => ok(res, "Fuso atualizado", { timezone, effective: resolveTimezone(timezone) }, "PUT"))
         .catch(fail(req, res));
 });
 

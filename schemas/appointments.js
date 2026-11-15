@@ -102,6 +102,11 @@ let schema = {
           'Selecione um status válido para o agendamento.',
         "any.required": errors.string.empty(),
       }),
+    // F2: profissional (da mesma empresa, validado no serviço). Ausente na edição = mantém o atual.
+    professional_id: Joi.number().integer().positive().allow(null).messages({
+      "number.base": errors.integer.base(),
+      "number.integer": errors.integer.integer(),
+    }),
     zip_code: Joi.string()
       .pattern(/^\d{5}-?\d{3}$/)
       .allow(null, "")

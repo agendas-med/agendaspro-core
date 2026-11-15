@@ -47,33 +47,69 @@ function parseRangeDate(value) {
   if (zone === 'Z') return { value: wallClock(new Date(String(value))), dateOnly: false };
   return { value: `${y}-${m}-${d} ${hh}:${mi}:${ss || '00'}`, dateOnly: false };
 }
-async function ensureSlot(query, companyId, date, duration, excludedId = 0) {
+// Profissional precisa ser da empresa e estar ativo (checado dentro da transação).
+async function assertProfessional(query, companyId, professionalId) {
+  if (professionalId === null || professionalId === undefined) return null;
+  const id = Number(professionalId);
+  const [row] = Number.isSafeInteger(id) && id > 0
+    ? await query('SELECT id FROM professionals WHERE id = ? AND company_id = ? AND active = 1', [id, companyId])
+    : [];
+  if (!row) throw Object.assign(new Error('Profissional inválido ou inativo nesta empresa.'), { status: 400 });
+  return id;
+}
+
+// Conflito de horário. Sem profissional = regra legada (empresa inteira). Com profissional:
+// conflita com agendamentos do mesmo profissional e com os sem profissional; respeita bloqueios
+// (da empresa e do profissional) e o expediente do profissional, se ele tiver regras cadastradas.
+async function ensureSlot(query, companyId, date, duration, excludedId = 0, { professionalId = null, verified = false } = {}) {
   // Serializa reservas concorrentes da mesma empresa.
   const companies = await query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [companyId]);
   if (!companies.length) throw new Error('Empresa não encontrada.');
-  const conflicts = await query(`SELECT id FROM appointments WHERE company_id = ? AND canceled = 0 AND id <> ?
+  const professional = verified ? (professionalId || null) : await assertProfessional(query, companyId, professionalId);
+  const scope = professional ? ' AND (professional_id = ? OR professional_id IS NULL)' : '';
+  const conflicts = await query(`SELECT id FROM appointments WHERE company_id = ? AND canceled = 0 AND id <> ?${scope}
     AND date < DATE_ADD(?, INTERVAL ? MINUTE) AND DATE_ADD(date, INTERVAL duration MINUTE) > ?`,
-  [companyId, excludedId, date, duration, date]);
+  professional ? [companyId, excludedId, professional, date, duration, date] : [companyId, excludedId, date, duration, date]);
   if (conflicts.length) throw new Error('Já existe um agendamento neste intervalo.');
+
+  const blocks = await query(`SELECT id FROM time_blocks WHERE company_id = ? AND (professional_id IS NULL${professional ? ' OR professional_id = ?' : ''})
+    AND starts_at < DATE_ADD(?, INTERVAL ? MINUTE) AND ends_at > ?`,
+  professional ? [companyId, professional, date, duration, date] : [companyId, date, duration, date]);
+  if (blocks.length) throw new Error('Horário bloqueado (folga ou feriado).');
+
+  if (professional) {
+    const rules = await query('SELECT weekday, TIME_FORMAT(start_time, "%H:%i") AS start_time, TIME_FORMAT(end_time, "%H:%i") AS end_time FROM availability_rules WHERE company_id = ? AND professional_id = ?', [companyId, professional]);
+    if (rules.length) {
+      const { wallWeekday, timeToMinutes } = require('../utils/time');
+      const wall = parseRangeDate(date);
+      if (wall.dateOnly) throw Object.assign(new Error('Informe data e hora do agendamento.'), { status: 400 });
+      const weekday = wallWeekday(wall.value);
+      const startOfDay = timeToMinutes(wall.value.slice(11, 16));
+      const end = startOfDay + Number(duration);
+      const fits = rules.some(rule => rule.weekday === weekday && timeToMinutes(rule.start_time) <= startOfDay && end <= timeToMinutes(rule.end_time));
+      if (!fits) throw new Error('Fora do horário de atendimento do profissional.');
+    }
+  }
 }
 const appointmentsService = {
-  async create(companyId, customerId, customerName, date, duration, observations, services, status, address = {}) {
+  async create(companyId, customerId, customerName, date, duration, observations, services, status, address = {}, { professionalId = null } = {}) {
     return functions.executeTransaction(async query => {
       await query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [companyId]);
       const items = await validateItems(query, companyId, customerId, services, address || {});
       const state = transition({}, status);
-      if (!state.canceled) await ensureSlot(query, companyId, date, duration);
-      const values = [companyId, customerId, customerName, date, duration, observations || '', state.checkin, state.checkout, state.canceled, state.payment_status, ...addressFields.map(field => address?.[field] || null)];
+      const professional = await assertProfessional(query, companyId, professionalId);
+      if (!state.canceled) await ensureSlot(query, companyId, date, duration, 0, { professionalId: professional, verified: true });
+      const values = [companyId, customerId, customerName, date, duration, observations || '', state.checkin, state.checkout, state.canceled, state.payment_status, ...addressFields.map(field => address?.[field] || null), professional];
       const result = await query(`INSERT INTO appointments
-        (company_id, customer_id, customer_name, date, duration, observations, checkin, checkout, canceled, payment_status, zip_code, address, number, complement, city, state)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, values);
+        (company_id, customer_id, customer_name, date, duration, observations, checkin, checkout, canceled, payment_status, zip_code, address, number, complement, city, state, professional_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, values);
       await saveServices(query, result.insertId, items);
       await query('INSERT INTO sales (company_id, customer_id, appointment_id, status) VALUES (?, ?, ?, ?)',
         [companyId, customerId, result.insertId, state.canceled ? 'cancelada' : 'em_aberto']);
       return result.insertId;
     });
   },
-  async update(id, companyId, customerId, customerName, date, duration, observations, services, status, address) {
+  async update(id, companyId, customerId, customerName, date, duration, observations, services, status, address, { professionalId } = {}) {
     return functions.executeTransaction(async query => {
       await query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [companyId]);
       const [current] = await query('SELECT * FROM appointments WHERE id = ? AND company_id = ? FOR UPDATE', [id, companyId]);
@@ -81,7 +117,11 @@ const appointmentsService = {
       const finalAddress = Object.fromEntries(addressFields.map(field => [field, address?.[field] === undefined ? current[field] : address[field]]));
       const items = await validateItems(query, companyId, customerId, services, finalAddress);
       const state = transition(current, status);
-      if (!state.canceled) await ensureSlot(query, companyId, date, duration, id);
+      // Ausente = mantém o profissional atual (null explícito remove).
+      const professional = professionalId === undefined
+        ? current.professional_id
+        : await assertProfessional(query, companyId, professionalId);
+      if (!state.canceled) await ensureSlot(query, companyId, date, duration, id, { professionalId: professional, verified: true });
       const [paid] = await query('SELECT COUNT(p.id) AS total FROM payments p JOIN sales s ON s.id = p.sale_id WHERE s.appointment_id = ?', [id]);
       const [charged] = await query('SELECT COUNT(*) AS total FROM sales WHERE appointment_id = ? AND pix_asaas_id IS NOT NULL', [id]);
       if (paid.total || charged.total) {
@@ -91,10 +131,12 @@ const appointmentsService = {
           throw new Error('Não altere cliente ou serviços de um agendamento com pagamento ou cobrança vinculada.');
         }
       }
-      await query(`UPDATE appointments SET customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?,
-        checkin = ?, checkout = ?, canceled = ?, payment_status = ?, zip_code = ?, address = ?, number = ?, complement = ?, city = ?, state = ?
+      // Lembretes voltam a valer se a data mudou (resets antes de `date =`: MariaDB avalia em ordem).
+      await query(`UPDATE appointments SET notified_1h = IF(date <> ?, 0, notified_1h), notified_2h = IF(date <> ?, 0, notified_2h),
+        customer_id = ?, customer_name = ?, date = ?, duration = ?, observations = ?,
+        checkin = ?, checkout = ?, canceled = ?, payment_status = ?, zip_code = ?, address = ?, number = ?, complement = ?, city = ?, state = ?, professional_id = ?
         WHERE id = ? AND company_id = ?`,
-      [customerId, customerName, date, duration, observations || '', state.checkin, state.checkout, state.canceled, state.payment_status, ...addressFields.map(field => finalAddress[field] || null), id, companyId]);
+      [date, date, customerId, customerName, date, duration, observations || '', state.checkin, state.checkout, state.canceled, state.payment_status, ...addressFields.map(field => finalAddress[field] || null), professional, id, companyId]);
       await saveServices(query, id, items);
       await query('UPDATE sales SET customer_id = ? WHERE appointment_id = ? AND company_id = ?', [customerId, id, companyId]);
       await require('./salesService').setAppointmentCancellation(query, companyId, id, state.canceled);

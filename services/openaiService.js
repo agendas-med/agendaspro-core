@@ -4,6 +4,8 @@ const _appointmentsService = require("./appointmentsService");
 const { ensureSlot } = require("./appointmentsService");
 const { decryptKey } = require("./asaasKeys");
 const _asaasService = require("./asaasService");
+const billingService = require("./billingService");
+const { toCents, centsToDecimal } = require("../utils/money");
 const moment = require("moment");
 const axios = require("axios");
 
@@ -1221,10 +1223,14 @@ let openaiService = {
             ? `${firstService.name} (x${firstService.quantity})`
             : firstService.name;
 
+        // Total em centavos (services.value é FLOAT legado) e comissão conforme o plano efetivo.
+        const totalCents = finalServices.reduce((sum, s) => sum + toCents(s.value) * s.quantity, 0);
+        const commission = await billingService.commissionFor(company_id, totalCents);
         const paymentLink = await _asaasService.createPaymentLink(
           {
             customerAsaasId: asaasCustomerId,
-            value: calculatedTotal,
+            value: centsToDecimal(totalCents),
+            split: commission.split,
             externalReference: `APP_${newAppId}`,
             description: `Agendamento - ${descriptionString}`,
           },
@@ -1234,7 +1240,8 @@ let openaiService = {
         await functions.executeTransaction(async query => {
           const [sale] = await query('SELECT id FROM sales WHERE appointment_id = ? AND company_id = ? FOR UPDATE', [newAppId, company_id]);
           await query('UPDATE sales SET pix_asaas_id = ? WHERE id = ?', [paymentLink.paymentId, sale.id]);
-          await query("INSERT INTO accounts_receivable (sale_id, customer_id, amount, payment_type, status) VALUES (?, ?, ?, 'pix_asaas', 'EM ABERTO')", [sale.id, customerId, calculatedTotal]);
+          await query("INSERT INTO accounts_receivable (sale_id, customer_id, amount, payment_type, status) VALUES (?, ?, ?, 'pix_asaas', 'EM ABERTO')", [sale.id, customerId, centsToDecimal(totalCents)]);
+          await billingService.recordCommission(query, { companyId: company_id, saleId: sale.id, providerPaymentId: paymentLink.paymentId, commission });
         });
 
         return `PAGAMENTO_PENDENTE|${paymentLink.url}`;
@@ -1305,7 +1312,7 @@ let openaiService = {
         // Mesma ordem de locks da criação: empresa primeiro, depois o agendamento.
         await query(`SELECT id FROM companies WHERE id = ? FOR UPDATE`, [company_id]);
         const owned = await query(
-          `SELECT a.id, a.duration, a.canceled, a.checkin
+          `SELECT a.id, a.duration, a.canceled, a.checkin, a.professional_id
              FROM appointments a
              INNER JOIN customers cust ON cust.id = a.customer_id AND cust.company_id = a.company_id
             WHERE a.id = ? AND a.company_id = ? AND REGEXP_REPLACE(cust.tel, '[^0-9]', '') IN (?)
@@ -1313,9 +1320,9 @@ let openaiService = {
           [appointment_id, company_id, phones],
         );
         if (!owned.length || owned[0].canceled || owned[0].checkin) throw new Error("NOT_OWNED");
-        await ensureSlot(query, company_id, new_date, owned[0].duration, appointment_id);
+        await ensureSlot(query, company_id, new_date, owned[0].duration, appointment_id, { professionalId: owned[0].professional_id, verified: true });
         await query(
-          `UPDATE appointments SET date = ?, notified_1h = 0 WHERE id = ? AND company_id = ?`,
+          `UPDATE appointments SET date = ?, notified_1h = 0, notified_2h = 0 WHERE id = ? AND company_id = ?`,
           [new_date, appointment_id, company_id],
         );
       });
