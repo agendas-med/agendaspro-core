@@ -2,11 +2,16 @@ const Joi = require('joi');
 const functions = require('../../utils/functions');
 const plans = require('../plansService');
 const { wallClock } = require('../../utils/time');
+const guard = require('../ai/guard');
+const aiBudget = require('../ai/budget');
+const { createOpenAIProvider, chatModel } = require('../ai/provider');
 
 // IA só para ambiguidade: classifica a intenção de uma mensagem livre. Nunca escreve nada,
 // nunca chama ferramentas, nunca decide opt-out. Saída JSON estrita, validada por schema e
 // por allowlist; ids devolvidos só valem se existirem no catálogo da própria empresa.
 // Todo texto do cliente é dado não confiável: vai delimitado e com < > escapados.
+// Reusa a camada compartilhada services/ai (provider, guarda, registro de uso e teto global);
+// o orçamento por empresa continua em ai_usage_daily (teto do plano/empresa).
 const INTENTS = ['book', 'my_bookings', 'cancel', 'reschedule', 'human', 'menu', 'greeting', 'unknown'];
 const MAX_INPUT = 500;
 const MAX_OUTPUT_TOKENS = 120;
@@ -32,18 +37,19 @@ const resultSchema = Joi.object({
   time: Joi.string().pattern(/^([01]\d|2[0-3]):[0-5]\d$/).allow(null).required(),
 }).unknown(false);
 
+// client: SDK compatível com a OpenAI (setClient nos testes); sem chave, IA desligada.
 let client = null;
-function getClient() {
-  if (client) return client;
-  if (!process.env.OPENAI_API_KEY) return null;
-  const { OpenAI } = require('openai');
-  client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, ...(process.env.OPENAI_BASE_URL ? { baseURL: process.env.OPENAI_BASE_URL } : {}), timeout: 15000, maxRetries: 0 });
-  return client;
+let provider = null;
+function getProvider() {
+  if (provider) return provider;
+  if (!client && !process.env.OPENAI_API_KEY) return null;
+  provider = createOpenAIProvider(client ? { client } : {});
+  return provider;
 }
 
-const model = () => process.env.OPENAI_MODEL_DEFAULT || 'gpt-6-luna';
-const escape = text => String(text ?? '').slice(0, MAX_INPUT).replace(/</g, '‹').replace(/>/g, '›');
-const oneLine = text => String(text ?? '').replace(/[\r\n\t]+/g, ' ').replace(/</g, '‹').replace(/>/g, '›').slice(0, 60);
+const model = () => chatModel();
+const escape = text => guard.escapeData(guard.sanitizeInput(text, { maxChars: MAX_INPUT }).text);
+const oneLine = text => guard.oneLine(text, 60);
 
 // Estimativa conservadora para a reserva (≈ 1 token a cada 3 caracteres + saída máxima).
 const estimateTokens = (system, user) => Math.ceil((system.length + user.length) / 3) + MAX_OUTPUT_TOKENS;
@@ -99,8 +105,10 @@ function buildPrompt({ companyName, services, professionals, text, todayDate }) 
 async function classify({ companyId, companyName, services = [], professionals = [], text }) {
   try {
     if (!companyId || !text) return null;
-    const api = getClient();
+    const api = getProvider();
     if (!api) return null;
+    if (await aiBudget.circuitOpen('provider').catch(() => false)) return null;
+    if (await aiBudget.globalExhausted().catch(() => false)) return null;
     const limit = await dailyLimit(companyId);
     if (limit <= 0) return null;
     const { system, user } = buildPrompt({ companyName, services, professionals, text, todayDate: today() });
@@ -108,22 +116,33 @@ async function classify({ companyId, companyName, services = [], professionals =
     if (!(await reserve(companyId, estimate, limit))) return { budgetExceeded: true };
 
     let response;
+    const started = Date.now();
     try {
-      response = await api.chat.completions.create({
+      response = await api.chat({
         model: model(),
         messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
-        max_completion_tokens: MAX_OUTPUT_TOKENS,
-        response_format: { type: 'json_schema', json_schema: { name: 'intent', strict: true, schema: SCHEMA } },
+        maxTokens: MAX_OUTPUT_TOKENS,
+        schema: { name: 'intent', schema: SCHEMA },
       });
     } catch (error) {
+      const status = error?.timeout ? 'timeout' : 'error';
       await reconcile(companyId, estimate, 0).catch(() => {});
+      await aiBudget.circuitFailure('provider', status).catch(() => {});
+      aiBudget.recordUsage({ companyId, feature: 'whatsapp_intent', model: model(), status, latencyMs: Date.now() - started }).catch(() => {});
       console.error('[wa-ai] Falha na classificação:', error?.status || error?.code || 'erro');
       return null;
     }
-    await reconcile(companyId, estimate, Number(response?.usage?.total_tokens)).catch(() => {});
+    const total = Number(response?.usage?.total) || 0;
+    await reconcile(companyId, estimate, total).catch(() => {});
+    await aiBudget.circuitSuccess('provider').catch(() => {});
+    // O uso real entra também no teto global (o teto da empresa já foi reservado acima).
+    const tokensOut = Number(response?.usage?.output) || 0;
+    const tokensIn = Number(response?.usage?.input) || Math.max(0, total - tokensOut);
+    aiBudget.recordUsage({ companyId, feature: 'whatsapp_intent', model: response?.model || model(), tokensIn, tokensOut, latencyMs: Date.now() - started })
+      .then(cost => aiBudget.add([aiBudget.globalScope()], total, cost)).catch(() => {});
 
     let parsed;
-    try { parsed = JSON.parse(response?.choices?.[0]?.message?.content || ''); } catch { return null; }
+    try { parsed = JSON.parse(response?.content || ''); } catch { return null; }
     const { value, error } = resultSchema.validate(parsed);
     if (error) return null;
     // Ids fora do catálogo da empresa são descartados (nunca dados de outra empresa).
@@ -138,5 +157,5 @@ async function classify({ companyId, companyName, services = [], professionals =
 
 module.exports = {
   classify, buildPrompt, reserve, reconcile, dailyLimit, INTENTS, SCHEMA,
-  setClient: c => { client = c; },
+  setClient: c => { client = c; provider = null; },
 };
