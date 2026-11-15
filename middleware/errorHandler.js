@@ -68,4 +68,4 @@ class HttpError extends Error {
   }
 }
 
-module.exports = { errorHandler, sendError, isInternal, HttpError, GENERIC_MESSAGE };
+module.exports = { errorHandler, sendError, isInternal, HttpError, GENERIC_MESSAGE, logInternal, correlationId };

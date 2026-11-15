@@ -17,6 +17,14 @@ async function hit(key, windowSec, now = Date.now()) {
   return { hits, resetAt: expiresAt };
 }
 
+// Lê o contador atual sem incrementar (ex.: bloquear enumeração antes de consultar o banco).
+async function peek(key, windowSec, now = Date.now()) {
+  const windowIndex = Math.floor(now / 1000 / windowSec);
+  const bucket = `${sha256(key).slice(0, 40)}:${windowSec}:${windowIndex}`;
+  const [row] = await functions.executeSql('SELECT hits, expires_at FROM rate_limits WHERE bucket = ?', [bucket]);
+  return { hits: row ? Number(row.hits) : 0, resetAt: new Date((windowIndex + 1) * windowSec * 1000) };
+}
+
 // key: string fixa ou função (req) => string. A chave final inclui o IP do cliente.
 function rateLimit({ key, windowSec = 60, max = 10, message = 'Muitas tentativas. Tente novamente em instantes.' }) {
   return async (req, res, next) => {
@@ -38,3 +46,4 @@ function rateLimit({ key, windowSec = 60, max = 10, message = 'Muitas tentativas
 
 module.exports = rateLimit;
 module.exports.hit = hit;
+module.exports.peek = peek;

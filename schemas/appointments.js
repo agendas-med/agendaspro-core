@@ -81,6 +81,10 @@ let schema = {
           }),
           requires_location: Joi.any().optional(),
           accepts_quantity: Joi.any().optional(),
+          // Colunas da página pública (F3) vêm junto quando o front reenvia a linha do serviço; ignoradas aqui.
+          public_description: Joi.any().strip(),
+          online_booking: Joi.any().strip(),
+          deposit_cents: Joi.any().strip(),
           measurement_unit: Joi.string().allow(null, "").optional(),
           quantity: Joi.number().integer().min(1).allow(null, "").optional(),
         }).messages({

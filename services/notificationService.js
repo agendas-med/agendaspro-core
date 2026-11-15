@@ -38,6 +38,7 @@ const CANDIDATES_SQL = (flag) => `
   INNER JOIN preferences p ON p.id = ccp.preference_id AND p.code = 'notificate_scheduling'
   WHERE a.${flag} = 0
     AND (a.canceled = 0 OR a.canceled IS NULL)
+    AND a.hold_expires_at IS NULL
     AND c.anonymized_at IS NULL`;
 
 // Fusos em uso (poucos): para cada um, a janela exata em hora de parede vai para o SQL.

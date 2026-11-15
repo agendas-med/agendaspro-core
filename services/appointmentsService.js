@@ -61,24 +61,32 @@ async function assertProfessional(query, companyId, professionalId) {
 // Conflito de horário. Sem profissional = regra legada (empresa inteira). Com profissional:
 // conflita com agendamentos do mesmo profissional e com os sem profissional; respeita bloqueios
 // (da empresa e do profissional) e o expediente do profissional, se ele tiver regras cadastradas.
-async function ensureSlot(query, companyId, date, duration, excludedId = 0, { professionalId = null, verified = false } = {}) {
+// Agendamento que ocupa horário: não cancelado e, se for reserva com sinal, ainda dentro do prazo
+// (reserva vencida sem pagamento libera o horário na leitura, sem cron).
+const OCCUPYING_SQL = 'canceled = 0 AND (hold_expires_at IS NULL OR hold_expires_at > NOW())';
+const slotTaken = message => Object.assign(new Error(message), { code: 'slot_taken' });
+
+// requireRules: a página pública só oferece horário dentro do expediente cadastrado (fail closed).
+async function ensureSlot(query, companyId, date, duration, excludedId = 0, { professionalId = null, verified = false, requireRules = false } = {}) {
   // Serializa reservas concorrentes da mesma empresa.
   const companies = await query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [companyId]);
   if (!companies.length) throw new Error('Empresa não encontrada.');
   const professional = verified ? (professionalId || null) : await assertProfessional(query, companyId, professionalId);
   const scope = professional ? ' AND (professional_id = ? OR professional_id IS NULL)' : '';
-  const conflicts = await query(`SELECT id FROM appointments WHERE company_id = ? AND canceled = 0 AND id <> ?${scope}
+  const conflicts = await query(`SELECT id FROM appointments WHERE company_id = ? AND ${OCCUPYING_SQL} AND id <> ?${scope}
     AND date < DATE_ADD(?, INTERVAL ? MINUTE) AND DATE_ADD(date, INTERVAL duration MINUTE) > ?`,
   professional ? [companyId, excludedId, professional, date, duration, date] : [companyId, excludedId, date, duration, date]);
-  if (conflicts.length) throw new Error('Já existe um agendamento neste intervalo.');
+  if (conflicts.length) throw slotTaken('Já existe um agendamento neste intervalo.');
 
   const blocks = await query(`SELECT id FROM time_blocks WHERE company_id = ? AND (professional_id IS NULL${professional ? ' OR professional_id = ?' : ''})
     AND starts_at < DATE_ADD(?, INTERVAL ? MINUTE) AND ends_at > ?`,
   professional ? [companyId, professional, date, duration, date] : [companyId, date, duration, date]);
-  if (blocks.length) throw new Error('Horário bloqueado (folga ou feriado).');
+  if (blocks.length) throw slotTaken('Horário bloqueado (folga ou feriado).');
 
+  if (requireRules && !professional) throw slotTaken('Fora do horário de atendimento do profissional.');
   if (professional) {
     const rules = await query('SELECT weekday, TIME_FORMAT(start_time, "%H:%i") AS start_time, TIME_FORMAT(end_time, "%H:%i") AS end_time FROM availability_rules WHERE company_id = ? AND professional_id = ?', [companyId, professional]);
+    if (!rules.length && requireRules) throw slotTaken('Fora do horário de atendimento do profissional.');
     if (rules.length) {
       const { wallWeekday, timeToMinutes } = require('../utils/time');
       const wall = parseRangeDate(date);
@@ -87,7 +95,7 @@ async function ensureSlot(query, companyId, date, duration, excludedId = 0, { pr
       const startOfDay = timeToMinutes(wall.value.slice(11, 16));
       const end = startOfDay + Number(duration);
       const fits = rules.some(rule => rule.weekday === weekday && timeToMinutes(rule.start_time) <= startOfDay && end <= timeToMinutes(rule.end_time));
-      if (!fits) throw new Error('Fora do horário de atendimento do profissional.');
+      if (!fits) throw slotTaken('Fora do horário de atendimento do profissional.');
     }
   }
 }
@@ -205,4 +213,6 @@ const appointmentsService = {
 };
 // Exportado para o bot reutilizar a mesma checagem de conflito dentro da transação.
 appointmentsService.ensureSlot = ensureSlot;
+appointmentsService.saveServices = saveServices;
+appointmentsService.OCCUPYING_SQL = OCCUPYING_SQL;
 module.exports = appointmentsService;
