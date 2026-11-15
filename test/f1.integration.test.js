@@ -32,10 +32,17 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
     stub = http.createServer((req, res) => {
       let body = '';
       req.on('data', chunk => { body += chunk; });
-      req.on('end', () => { sent.push({ auth: req.headers.authorization, body: JSON.parse(body || '{}') }); res.writeHead(stubStatus).end('{}'); });
+      req.on('end', () => {
+        sent.push({ auth: req.headers.authorization, path: req.url, body: JSON.parse(body || '{}') });
+        res.writeHead(stubStatus, { 'Content-Type': 'application/json' }).end(JSON.stringify({ messages: [{ id: `wamid.f1${sent.length}${Date.now()}` }] }));
+      });
     });
     await new Promise(resolve => stub.listen(0, '127.0.0.1', resolve));
-    process.env.WHATSAPP_API_URL = `http://127.0.0.1:${stub.address().port}`;
+    // F4: lembretes saem pela WhatsApp Cloud API (Graph falso local).
+    Object.assign(process.env, {
+      WHATSAPP_CLOUD_ENABLED: 'true', META_GRAPH_URL: `http://127.0.0.1:${stub.address().port}`, META_PHONE_NUMBER_ID: '100000000000001',
+      META_ACCESS_TOKEN: secret(), META_APP_SECRET: secret(), META_VERIFY_TOKEN: secret(),
+    });
 
     await require('../scripts/migrate')({ log: () => {} });
     const functions = require('../utils/functions');
@@ -287,6 +294,8 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
       await A.as('POST', '/appointments', { ...appointmentBody, date: await at('20 MINUTE') });
       await A.as('POST', '/appointments', { ...appointmentBody, date: await at('30 HOUR') });
       const [soon] = await sql('SELECT id FROM appointments WHERE company_id = ? AND date > NOW() + INTERVAL 2 HOUR AND date < NOW() + INTERVAL 4 HOUR', [A.companyId]);
+      // Fora da janela de 24h só sai modelo aprovado.
+      await sql("UPDATE whatsapp_templates SET status = 'approved' WHERE name = 'agendamento_lembrete'");
 
       stubStatus = 500;
       sent.length = 0;
@@ -301,8 +310,11 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
       stats = await jobs.tick({ budgetMs: 5000 });
       assert.equal(stats.done, 1);
       assert.equal(sent.length, 1);
-      assert.equal(sent[0].auth, `Bearer ${process.env.WHATSAPP_OUTBOUND_TOKEN}`);
-      assert.equal(sent[0].body.number, '5511988887777');
+      assert.equal(sent[0].auth, `Bearer ${process.env.META_ACCESS_TOKEN}`);
+      assert.equal(sent[0].path, '/v21.0/100000000000001/messages');
+      assert.equal(sent[0].body.to, '5511988887777');
+      assert.equal(sent[0].body.template.name, 'agendamento_lembrete');
+      assert.equal(sent[0].body.template.components[0].parameters.length, 4);
       assert.equal((await sql('SELECT notified_1h FROM appointments WHERE id = ?', [soon.id]))[0].notified_1h, 1);
       sent.length = 0;
       stats = await jobs.tick({ budgetMs: 5000 });
@@ -334,11 +346,14 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
       assert.equal((await hook({ id: 'evt_other', event: 'PAYMENT_OVERDUE', payment: { id: 'pay_o', externalReference: 'OUTRO_1' } })).data.ignored, true);
     });
 
-    await t.test('bot: mídia, só agendamentos do remetente', async () => {
+    await t.test('bot legado: relay descontinuado (410); regras do serviço antigo seguem isoladas', async () => {
       const auth = process.env.WHATSAPP_INBOUND_TOKEN;
+      await expect(410, 'POST', '/webhook/whatsapp', { auth, body: { phone: '5511988887777', message: 'oi' } });
+      process.env.WHATSAPP_LEGACY_RELAY = 'true';
       await expect(401, 'POST', '/webhook/whatsapp', { body: { phone: '11988887777', message: 'oi' }, auth: process.env.WHATSAPP_OUTBOUND_TOKEN });
       const media = await expect(200, 'POST', '/webhook/whatsapp', { auth, body: { phone: '5511988887777', message: { audio: true } } });
       assert.match(media.returnObj.reply, /texto/);
+      delete process.env.WHATSAPP_LEGACY_RELAY;
       const bot = require('../services/openaiService');
       assert.ok(bot.phoneCandidates('5511988887777').includes('11988887777'));
       const own = await bot.getCustomerAppointments('5511988887777', '39053344705');

@@ -30,7 +30,7 @@ test('F3: API pública (página, disponibilidade, reserva, sinal Pix, gestão, l
           return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ success: params.get('response') === 'ok' && !!params.get('secret') }));
         }
         sent.push(JSON.parse(body || '{}'));
-        return res.writeHead(200, { 'Content-Type': 'application/json' }).end('{}');
+        return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ messages: [{ id: `wamid.f3${sent.length}${Date.now()}` }] }));
       });
     });
     await new Promise(resolve => stub.listen(0, '127.0.0.1', resolve));
@@ -46,11 +46,15 @@ test('F3: API pública (página, disponibilidade, reserva, sinal Pix, gestão, l
       TURNSTILE_VERIFY_URL: `${stubUrl}/turnstile`, PUBLIC_SITE_URL: SITE, PUBLIC_CORS_ORIGINS: SITE,
       PUBLIC_BOOKING_IP_MAX: '1000', PUBLIC_LEADS_IP_MAX: '6', PUBLIC_SLUG_MISS_MAX: '5',
       SALES_NOTIFY_WHATSAPP: '11900000000',
+      // F4: avisos pela WhatsApp Cloud API (Graph falso local).
+      WHATSAPP_CLOUD_ENABLED: 'true', META_GRAPH_URL: stubUrl, META_PHONE_NUMBER_ID: '100000000000003',
+      META_ACCESS_TOKEN: secret(), META_APP_SECRET: secret(), META_VERIFY_TOKEN: secret(),
     });
     for (const key of ['JWT_KEY', 'APP_TIMEZONE', 'TURNSTILE_DEV_BYPASS', 'USER_EMAIL', 'SALES_NOTIFY_EMAIL']) delete process.env[key];
 
     await require('../scripts/migrate')({ log: () => {} });
     const functions = require('../utils/functions');
+    await functions.executeSql("UPDATE whatsapp_templates SET status = 'approved'");
     pool = require('../mysql').pool;
     const sql = functions.executeSql.bind(functions);
     const app = require('../app');
@@ -272,9 +276,10 @@ test('F3: API pública (página, disponibilidade, reserva, sinal Pix, gestão, l
       const jobs = require('../services/jobsService');
       sent.length = 0;
       await jobs.tick({ budgetMs: 10000 });
-      const msg = sent.find(m => m.number === '5511970000001');
-      assert.ok(msg, JSON.stringify(sent.map(m => m.number)));
-      assert.match(msg.text, new RegExp(`${SITE}/agendamento/v1\\.`));
+      const msg = sent.find(m => m.to === '5511970000001');
+      assert.ok(msg, JSON.stringify(sent.map(m => m.to)));
+      assert.equal(msg.template.name, 'agendamento_confirmado');
+      assert.match(msg.template.components[0].parameters.map(p => p.text).join('|'), new RegExp(`${SITE}/agendamento/v1\\.`));
       const [{ n }] = await sql("SELECT COUNT(*) AS n FROM jobs WHERE type = 'booking_confirmation' AND status = 'done'");
       assert.ok(n >= 3);
     });
@@ -390,9 +395,10 @@ test('F3: API pública (página, disponibilidade, reserva, sinal Pix, gestão, l
       assert.ok(Number(ipLimited.headers.get('retry-after')) > 0);
       assert.equal((await sql('SELECT COUNT(*) AS n FROM leads'))[0].n, 3);
       await require('../services/jobsService').tick({ budgetMs: 10000 });
-      const notice = sent.filter(m => m.number === '5511900000000');
+      const notice = sent.filter(m => m.to === '5511900000000');
       assert.equal(notice.length, 3);
-      assert.match(notice[0].text, /Novo lead/);
+      assert.equal(notice[0].template.name, 'lead_novo');
+      assert.equal(notice[0].template.components[0].parameters[0].text, 'Lead Teste');
     });
 
     await t.test('anti-enumeração de slug e 404 JSON', async () => {

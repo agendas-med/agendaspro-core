@@ -8,7 +8,13 @@ const { sendError } = require('../middleware/errorHandler');
 
 const MEDIA_REPLY = "Por enquanto consigo ler apenas mensagens de texto. 🙂 Pode escrever o que você precisa?";
 
-router.post("/whatsapp", webhookAuth, async (req, res) => {
+// F4: relay legado (whatsapp-bot + whatsapp-web.js) descontinuado. O canal oficial é a
+// WhatsApp Cloud API em /webhook/meta. Só reativável explicitamente (WHATSAPP_LEGACY_RELAY=true)
+// durante a migração; por padrão responde 410 Gone.
+router.post("/whatsapp", (req, res, next) => {
+    if (process.env.WHATSAPP_LEGACY_RELAY === 'true') return next();
+    return res.status(410).send({ message: "Canal descontinuado. Use a WhatsApp Cloud API (/webhook/meta)." });
+}, webhookAuth, async (req, res) => {
     jobsService.drainSoon();
     try {
         const { phone, message } = req.body || {};

@@ -34,10 +34,17 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
     stub = http.createServer((req, res) => {
       let body = '';
       req.on('data', chunk => { body += chunk; });
-      req.on('end', () => { sent.push(JSON.parse(body || '{}')); res.writeHead(200).end('{}'); });
+      req.on('end', () => {
+        sent.push(JSON.parse(body || '{}'));
+        res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ messages: [{ id: `wamid.f2${sent.length}${Date.now()}` }] }));
+      });
     });
     await new Promise(resolve => stub.listen(0, '127.0.0.1', resolve));
-    process.env.WHATSAPP_API_URL = `http://127.0.0.1:${stub.address().port}`;
+    // F4: lembretes pela WhatsApp Cloud API (Graph falso local).
+    Object.assign(process.env, {
+      WHATSAPP_CLOUD_ENABLED: 'true', META_GRAPH_URL: `http://127.0.0.1:${stub.address().port}`, META_PHONE_NUMBER_ID: '100000000000002',
+      META_ACCESS_TOKEN: secret(), META_APP_SECRET: secret(), META_VERIFY_TOKEN: secret(),
+    });
 
     await require('../scripts/migrate')({ log: () => {} });
     const functions = require('../utils/functions');
@@ -319,6 +326,7 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       const [appA] = await sql('SELECT id FROM appointments WHERE company_id = ? AND date = ?', [A.companyId, soon]);
       const [appB] = await sql('SELECT id FROM appointments WHERE company_id = ? AND date = ?', [B.companyId, soon]);
 
+      await sql("UPDATE whatsapp_templates SET status = 'approved' WHERE name = 'agendamento_lembrete'");
       sent.length = 0;
       const stats = await jobs.tick({ budgetMs: 10000 });
       assert.equal(stats.enqueued, 3, '24h de A e B + 2h só de A');
@@ -326,8 +334,11 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       assert.equal(jobA2h.status, 'done');
       assert.equal((await sql("SELECT COUNT(*) AS total FROM jobs WHERE type = 'appointment_reminder_2h' AND dedupe_key LIKE ?", [`reminder2h:${appB.id}:%`]))[0].total, 0, 'Free não recebe 2h');
       assert.equal(sent.length, 2, 'uma mensagem por agendamento');
-      assert.equal(sent.filter(m => m.number === '5511988887777').length, 1);
-      assert.match(sent.find(m => m.number === '5511988887777').text, /Falta pouco/);
+      assert.equal(sent.filter(m => m.to === '5511988887777').length, 1);
+      // Fora da janela de 24h: modelo aprovado (lembrete) com 4 parâmetros.
+      const tplA = sent.find(m => m.to === '5511988887777').template;
+      assert.equal(tplA.name, 'agendamento_lembrete');
+      assert.equal(tplA.components[0].parameters.length, 4);
       const [flagsA] = await sql('SELECT notified_1h, notified_2h FROM appointments WHERE id = ?', [appA.id]);
       assert.deepEqual([flagsA.notified_1h, flagsA.notified_2h], [1, 1]);
       sent.length = 0;

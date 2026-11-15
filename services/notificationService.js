@@ -1,5 +1,4 @@
 const functions = require("../utils/functions");
-const axios = require("axios");
 const plans = require("./plansService");
 const { wallClock, wallMinutes, minutesToWall, dbWall, resolveTimezone, defaultTimezone } = require("../utils/time");
 
@@ -119,30 +118,21 @@ async function sendReminder(kind, { appointment_id: appointmentId }) {
     return { skipped: true, reason: "coberto pelo lembrete 2h" };
   }
 
-  const number = whatsappNumber(app.tel);
-  if (number.length < 12) {
-    await markSent(app.id, flags);
-    return { skipped: true, reason: "telefone inválido" };
-  }
-  try {
-    await plans.assertQuota(app.company_id, "whatsapp_monthly_messages", { ent });
-  } catch (error) {
-    if (error?.code !== "plan_upgrade_required") throw error;
-    await markSent(app.id, flags);
-    return { skipped: true, reason: "quota" };
-  }
-  if (!process.env.WHATSAPP_API_URL || !process.env.WHATSAPP_OUTBOUND_TOKEN) {
-    throw new Error("WhatsApp de saída não configurado (WHATSAPP_API_URL/WHATSAPP_OUTBOUND_TOKEN).");
-  }
-
-  await axios.post(
-    `${process.env.WHATSAPP_API_URL}/message/sendText`,
-    { number, text: reminderText(app, lead) },
-    { headers: { Authorization: `Bearer ${process.env.WHATSAPP_OUTBOUND_TOKEN}`, "Content-Type": "application/json" }, timeout: 10000 },
-  );
+  // F4: Cloud API oficial. outbound.notify aplica opt-out, janela 24h (sessão ou modelo
+  // aprovado), quota mensal e conta o uso. Regra de negócio -> pula e marca; erro retentável
+  // da Meta -> lança (o job tenta de novo com backoff).
+  const outbound = require("./whatsapp/outbound");
+  const [date, time] = app.wall.split(" ");
+  const today = wallClock(new Date(), resolveTimezone(app.timezone)).slice(0, 10) === date;
+  const result = await outbound.notify({
+    companyId: app.company_id,
+    phone: app.tel,
+    purpose: "reminder",
+    params: [app.customer_name, app.company_name, today ? "hoje" : `${date.slice(8, 10)}/${date.slice(5, 7)}`, time.slice(0, 5)],
+    text: reminderText(app, lead),
+  });
   await markSent(app.id, flags);
-  await plans.incrementUsage(app.company_id, "whatsapp_monthly_messages").catch(() => {});
-  return { sent: true };
+  return result;
 }
 
 const sendAppointmentReminder = payload => sendReminder("24h", payload);
