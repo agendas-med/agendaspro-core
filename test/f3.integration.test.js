@@ -378,9 +378,10 @@ test('F3: API pública (página, disponibilidade, reserva, sinal Pix, gestão, l
 
       const lead = (n, extra = {}) => ({ name: 'Lead Teste', whatsapp: phone(n), email: 'lead@example.test', segment: 'barbearia', source: 'site/home', message: 'Quero saber mais', turnstile_token: 'ok', ...extra });
       sent.length = 0;
-      assert.deepEqual(await pub('POST', '/leads', lead(400), 200), { ok: true });
-      await pub('POST', '/leads', lead(400), 200);
-      await pub('POST', '/leads', lead(400), 200);
+      assert.deepEqual(await pub('POST', '/leads', lead(400), 201), { ok: true });
+      await pub('POST', '/leads', lead(400), 201);
+      await pub('POST', '/leads', lead(400, { source: undefined }), 201);
+      assert.deepEqual((await sql('SELECT source FROM leads ORDER BY id')).map(r => r.source), ['site/home', 'site/home', 'site']);
       assert.equal((await pub('POST', '/leads', lead(400), 429)).error.code, 'rate_limited');
       assert.equal((await pub('POST', '/leads', lead(401, { extra: 1 }), 400)).error.code, 'validation_error');
       assert.equal((await pub('POST', '/leads', lead(401, { turnstile_token: 'ruim' }), 400)).error.code, 'turnstile_failed');

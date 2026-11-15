@@ -146,7 +146,7 @@ const leadBody = Joi.object({
   whatsapp: Joi.string().trim().max(25).required(),
   email: Joi.string().trim().email({ tlds: { allow: false } }).max(255).allow('', null),
   segment: Joi.string().trim().min(2).max(60).required(),
-  source: Joi.string().trim().min(1).max(80).required(),
+  source: Joi.string().trim().min(1).max(80).default('site'),
   message: Joi.string().trim().max(1000).allow('', null),
   consent: Joi.boolean(),
   turnstile_token: TOKEN,
@@ -159,12 +159,13 @@ const rescheduleBody = Joi.object({ start: START.custom(realTime).required() }).
 
 router.post('/leads', ipLimit('leads', 3600, Number(process.env.PUBLIC_LEADS_IP_MAX) || 5), validate(leadBody, 'body'), handle(async req => {
   const body = req.valid_body;
-  return leads.createLead(body, {
+  const out = await leads.createLead(body, {
     guard: async ({ phone }) => {
       await verifyTurnstile(body.turnstile_token, req.ip);
       await limit(`public:lead-phone|${phone}`, 86400, Number(process.env.PUBLIC_LEADS_PHONE_MAX) || 3);
     },
   });
+  return { __status: 201, __body: out };
 }));
 
 router.get('/b/:slug', ipLimit('read', 600, 300), slugGate, validate(slugParams, 'params'), handle(req => booking.getBusiness(req.valid_params.slug)));
