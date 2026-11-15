@@ -11,6 +11,9 @@ const getHeaders = (apiKey) => ({
   "Content-Type": "application/json",
 });
 
+// Log sem payload/PII: só status HTTP e códigos de erro do Asaas.
+const safeError = (error) => ({ status: error?.response?.status, codes: (error?.response?.data?.errors || []).map((e) => e.code).slice(0, 3), message: error?.response ? undefined : String(error?.message || error).slice(0, 200) });
+
 const asaasService = {
   async cancelCharge(id, apiKey) {
     const { data } = await axios.get(`${ASAAS_URL}/payments/${id}`, { headers: getHeaders(apiKey), timeout: 15000 });
@@ -79,7 +82,7 @@ const asaasService = {
     } catch (error) {
       console.error(
         "[Asaas Error - Create Subaccount]:",
-        error.response?.data || error.message,
+        safeError(error),
       );
       throw error;
     }
@@ -125,7 +128,7 @@ const asaasService = {
     } catch (error) {
       console.error(
         "[Asaas Error - Get/Create Customer]:",
-        error.response?.data || error.message,
+        safeError(error),
       );
       throw error;
     }
@@ -155,11 +158,6 @@ const asaasService = {
         externalReference: args.externalReference,
       };
 
-      // 3. RASTREIO: Imprime no terminal o que está a ser enviado para o Asaas
-      console.log(
-        "[Asaas Rastreio - Payload Pix]:",
-        JSON.stringify(payload, null, 2),
-      );
 
       const response = await axios.post(`${ASAAS_URL}/payments`, payload, {
         headers: getHeaders(subaccountApiKey),
@@ -185,7 +183,7 @@ const asaasService = {
     } catch (error) {
       console.error(
         "[Asaas Error - Create Pix]:",
-        error.response?.data || error.message,
+        safeError(error),
       );
       throw error;
     }
@@ -224,7 +222,7 @@ const asaasService = {
     } catch (error) {
       console.error(
         "[Asaas Error - Create Payment Link]:",
-        error.response?.data || error.message,
+        safeError(error),
       );
       throw error;
     }
@@ -249,8 +247,6 @@ const asaasService = {
           },
         );
 
-        console.log(docsResponse.data.data);
-
         const pendingDocs = docsResponse.data.data || [];
         const docWithLink = pendingDocs.find((doc) => doc.onboardingUrl);
 
@@ -266,7 +262,7 @@ const asaasService = {
     } catch (error) {
       console.error(
         "[Asaas Error - Get Status]:",
-        error.response?.data || error.message,
+        safeError(error),
       );
       throw error;
     }
@@ -292,7 +288,7 @@ const asaasService = {
         url: webhookUrl,
         email: process.env.USER_EMAIL || "sistema.agendaspro@gmail.com",
         sendType: "NON_SEQUENTIALLY", 
-        events: ["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"],
+        events: ["PAYMENT_RECEIVED", "PAYMENT_CONFIRMED", "PAYMENT_OVERDUE", "PAYMENT_DELETED", "PAYMENT_REFUNDED", "PAYMENT_PARTIALLY_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED", "PAYMENT_CHARGEBACK_DISPUTE", "PAYMENT_AWAITING_CHARGEBACK_REVERSAL"],
         enabled: true,
         interrupted: false
       };
@@ -305,7 +301,7 @@ const asaasService = {
     } catch (error) {
       console.error(
         "[Asaas Error - Create Webhook]:",
-        error.response?.data || error.message,
+        safeError(error),
       );
       throw error;
     }

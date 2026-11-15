@@ -1,19 +1,21 @@
 require('./config/env');
-const cron = require('node-cron');
-const notificationService = require('./services/notificationService');
-
-if (process.env.ENABLE_REMINDERS !== 'false') cron.schedule('* * * * *', async () => {
-    console.log("[Cron] Verificando lembretes de agendamento...");
-    try { await notificationService.sendHourlyReminders(); }
-    catch (error) { console.error('[Lembretes]', error.message); }
-});
-
 
 const express = require('express');
 const app = express();
 const morgan = require('morgan');
-const bodyParser = require("body-parser");
+const helmet = require('helmet');
 const cors = require('cors');
+const { errorHandler } = require('./middleware/errorHandler');
+
+// Lembretes rodam pela fila de jobs (POST /internal/jobs/tick, gatilho externo horário).
+// O cron em processo é só para desenvolvimento/instância sempre ligada.
+if (process.env.ENABLE_INPROCESS_CRON === 'true') {
+    const cron = require('node-cron');
+    const jobsService = require('./services/jobsService');
+    cron.schedule('*/15 * * * *', () => {
+        jobsService.tick().catch((error) => console.error('[cron] tick falhou:', String(error?.message || error).slice(0, 200)));
+    });
+}
 
 const usersRoute = require('./routes/users');
 const companiesRoute = require('./routes/companies');
@@ -25,33 +27,44 @@ const salesRoute = require("./routes/sales");
 const utilsRoute = require("./routes/utils");
 const stockRoute = require("./routes/stock");
 const webhookRoute = require("./routes/webhook");
+const internalRoute = require("./routes/internal");
+const filesRoute = require("./routes/files");
+const privacyRoute = require("./routes/privacy");
 
-app.use(morgan('dev'));
-app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
-app.use(cors());
+// Atrás do roteador do Heroku: um proxy confiável (req.ip correto para o rate limit).
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
-app.use((req, res, next) => {
-    if (process.env.URL_SITE) res.header('Access-Control-Allow-Origin', process.env.URL_SITE);
-    res.header(
-        'Access-Control-Allow-Headers',
-        'Origin, X-Requested-With, Content-Type, Accept, Authorization, Selected-company'
-    );
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
-    if (req.method == 'OPTIONS') {
-        res.header('Access-Control-Allow-Methods', 'PUT, POST, PATCH, DELETE, GET');
-        return res.status(200).send({});
-    }
+// Log de acesso sem query string (tokens), corpo ou headers.
+morgan.token('path', (req) => (req.originalUrl || req.url || '').split('?')[0]);
+if (process.env.NODE_ENV !== 'test') app.use(morgan(':method :path :status :response-time ms'));
 
-    next();
-});
+// CORS por allowlist (CORS_ORIGINS, separado por vírgula; URL_SITE como fallback).
+const allowedOrigins = (process.env.CORS_ORIGINS || process.env.URL_SITE || '')
+    .split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        if (!allowedOrigins.length && process.env.NODE_ENV !== 'production') return callback(null, true);
+        return callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Selected-company'],
+    maxAge: 600,
+}));
 
-app.get('/health', async (req, res) => {
-    try {
-        await require('./utils/functions').executeSql('SELECT 1');
-        res.json({ status: 'ok', database: 'ok' });
-    } catch (error) { res.status(503).json({ status: 'unavailable', database: 'unavailable' }); }
-});
+// Limite de corpo: 1 MB em geral; cadastro de clientes aceita imagem base64 (até 6 MB).
+const bodyLimit = process.env.BODY_LIMIT || '1mb';
+app.use('/customers', express.json({ limit: process.env.UPLOAD_BODY_LIMIT || '6mb' }));
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
+
+// Health leve (sem banco) para o roteador; o profundo exige ADMIN_TOKEN.
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
 app.use('/users', usersRoute);
 app.use('/companies', companiesRoute);
 app.use('/customers', customersRoute);
@@ -62,8 +75,12 @@ app.use("/sales", salesRoute);
 app.use("/utils", utilsRoute);
 app.use("/stock", stockRoute);
 app.use("/webhook", webhookRoute);
+app.use("/internal", internalRoute);
+app.use("/files", filesRoute);
+app.use("/privacy", privacyRoute);
+app.get('/health/deep', require('./middleware/requireToken')('ADMIN_TOKEN'), internalRoute.deepHealth);
 
-app.use('/public', express.static('public'));
+app.use('/public', express.static('public', { dotfiles: 'deny', index: false }));
 
 app.use((req, res, next) => {
     const erro = new Error("Não encontrado");
@@ -71,11 +88,6 @@ app.use((req, res, next) => {
     next(erro);
 });
 
-app.use((error, req, res, next) => {
-    res.status(error.status || 500);
-    return res.send({
-       mensagem: error.message
-    });
-});
+app.use(errorHandler);
 
 module.exports = app;

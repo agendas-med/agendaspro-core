@@ -16,7 +16,7 @@ let customersService = {
                     `
                     INSERT INTO customers (name, cpf, birthday, tel, image, company_id, email)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
-                    `, [name, cpf, birthday, tel, imageUrl, company_id, email]
+                    `, [name, cpf, birthday || null, tel, imageUrl, company_id, email]
                 ).then((results) => {
                     if (results.affectedRows > 0) {
                         this.getAllByCompany(company_id, true);
@@ -46,7 +46,7 @@ let customersService = {
                     UPDATE customers 
                     SET name = ?, cpf = ?, birthday = ?, tel = ?, image = ?, email = ?
                     WHERE id = ? AND company_id = ?
-                    `, [name, cpf, birthday, tel, imageUrl, email, customer_id, company_id]
+                    `, [name, cpf, birthday || null, tel, imageUrl, email, customer_id, company_id]
                 ).then(() => {
                     this.getAllByCompany(company_id, true);
                     resolve();

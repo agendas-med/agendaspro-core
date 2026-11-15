@@ -23,6 +23,15 @@ async function saveServices(query, id, services) {
   await query('DELETE FROM appointment_services WHERE appointment_id = ?', [id]);
   if (services.length) await query('INSERT INTO appointment_services (service_id, appointment_id, quantity) VALUES ?', [services.map(service => [service.id, id, service.quantity || 1])]);
 }
+function parseRangeDate(value) {
+  const text = String(value);
+  if (!/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/.test(text) || Number.isNaN(Date.parse(text.slice(0, 10)))) {
+    const error = new Error('Intervalo de datas inválido (use YYYY-MM-DD).');
+    error.status = 400;
+    throw error;
+  }
+  return text.replace('T', ' ');
+}
 async function ensureSlot(query, companyId, date, duration, excludedId = 0) {
   // Serializa reservas concorrentes da mesma empresa.
   const companies = await query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [companyId]);
@@ -106,12 +115,15 @@ const appointmentsService = {
     if (!appointment) throw new Error('Agendamento não encontrado.');
     return this.decorate(appointment);
   },
-  async getAllByCompany(companyId, clearCache = false, targetDate = null) {
+  async getAllByCompany(companyId, clearCache = false, targetDate = null, range = {}) {
     let sql = `SELECT c.image, a.*, SUBSTRING_INDEX(a.customer_name, ' ', 1) AS first_name
       FROM appointment_status_view a JOIN customers c ON c.id = a.customer_id WHERE a.company_id = ?`;
     const params = [companyId];
     if (targetDate === true || targetDate === 'true') sql += ' AND DATE(a.date) = CURDATE()';
     else if (targetDate && targetDate !== 'false') { sql += ' AND DATE(a.date) = ?'; params.push(targetDate); }
+    // Intervalo ?start=&end= (datas YYYY-MM-DD inclusivas ou datetime); sempre dentro da empresa.
+    if (range.start) { sql += ' AND a.date >= ?'; params.push(parseRangeDate(range.start)); }
+    if (range.end) { const end = parseRangeDate(range.end); sql += end.length === 10 ? ' AND a.date < DATE_ADD(?, INTERVAL 1 DAY)' : ' AND a.date <= ?'; params.push(end); }
     sql += " ORDER BY FIELD(a.status, 'iniciado', 'pendente_pagamento', 'agendado', 'realizado', 'cancelado'), a.date";
     const appointments = await functions.executeSql(sql, params);
     return Promise.all(appointments.map(appointment => this.decorate(appointment)));
@@ -133,4 +145,6 @@ const appointmentsService = {
   stop(companyId, id) { return this.changeState(companyId, id, 'realizado'); },
   cancel(companyId, id) { return this.changeState(companyId, id, 'cancelado'); },
 };
+// Exportado para o bot reutilizar a mesma checagem de conflito dentro da transação.
+appointmentsService.ensureSlot = ensureSlot;
 module.exports = appointmentsService;

@@ -4,6 +4,7 @@ const login = require("../middleware/login");
 const _appointmentsService = require("../services/appointmentsService");
 const functions = require("../utils/functions");
 const validate = require("../middleware/validate");
+const { sendError } = require('../middleware/errorHandler');
 
 // Criar um agendamento
 router.post("/", login, validate.validateRequest(validate.schemas.appointments.create), validate.validateCompanyAccess, (req, res, next) => {
@@ -21,7 +22,7 @@ router.post("/", login, validate.validateRequest(validate.schemas.appointments.c
         let response = functions.createResponse("Agendamento criado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 
@@ -42,7 +43,7 @@ router.patch("/:id", login, validate.validateRequest(validate.schemas.appointmen
         let response = functions.createResponse("Agendamento atualizado com sucesso", null, "PATCH", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 
@@ -55,7 +56,7 @@ router.delete("/:id", login, validate.validateCompanyAccess, (req, res, next) =>
         let response = functions.createResponse("Agendamento excluído com sucesso", null, "DELETE", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 
@@ -68,7 +69,7 @@ router.get("/:id", login, validate.validateCompanyAccess, (req, res, next) => {
         let response = functions.createResponse("Agendamento encontrado", appointment, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(404).send(error.message || error);
+        return sendError(req, res, error, 404, { text: true });
     });
 });
 
@@ -79,12 +80,13 @@ router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
     _appointmentsService.getAllByCompany(
         req.headers['selected-company'],
         false,
-        today
+        today,
+        { start: req.query.start, end: req.query.end }
     ).then((appointments) => {
         let response = functions.createResponse("Lista de agendamentos", appointments, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 
@@ -96,7 +98,7 @@ router.post("/init/:appointment_id", login, validate.validateCompanyAccess, (req
         let response = functions.createResponse("Agendamento iniciado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 
@@ -108,7 +110,7 @@ router.post("/stop/:appointment_id", login, validate.validateCompanyAccess, (req
         let response = functions.createResponse("Agendamento concluído com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 
@@ -120,7 +122,7 @@ router.post("/cancel/:appointment_id", login, validate.validateCompanyAccess, (r
         let response = functions.createResponse("Agendamento cancelado com sucesso", null, "POST", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(400).send(error.message || error);
+        return sendError(req, res, error, 400, { text: true });
     });
 });
 

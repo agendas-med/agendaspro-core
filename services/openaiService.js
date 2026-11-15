@@ -1,6 +1,8 @@
 const { OpenAI } = require("openai");
 const functions = require("../utils/functions");
 const _appointmentsService = require("./appointmentsService");
+const { ensureSlot } = require("./appointmentsService");
+const { decryptKey } = require("./asaasKeys");
 const _asaasService = require("./asaasService");
 const moment = require("moment");
 const axios = require("axios");
@@ -182,7 +184,7 @@ let openaiService = {
               }
             }
           } catch (error) {
-            console.error("[ViaCEP Error]: Falha ao buscar CEP", error);
+            console.error("[ViaCEP Error]: Falha ao buscar CEP", error?.code || error?.response?.status || "erro");
           }
         }
 
@@ -575,7 +577,7 @@ let openaiService = {
           await this.updateSessionStage(session.id, "menu", {});
           return {
             reply:
-              "Não encontrei nenhum agendamento ativo para este CPF ou telefone. 😕\n\nO que deseja fazer?\n*1* - Novo Agendamento\n*2* - Tentar Reagendar com outro CPF",
+              "Não encontrei nenhum agendamento ativo para este número de WhatsApp com este CPF. 😕\n\nO que deseja fazer?\n*1* - Novo Agendamento\n*2* - Tentar Reagendar com outro CPF",
           };
         }
 
@@ -675,6 +677,7 @@ let openaiService = {
             };
           } else {
             const quickRescheduleResult = await this.processReschedule({
+              phone,
               appointment_id: collectedData.selected_appointment.appointment_id,
               new_date: `${collectedData.new_date} ${newDateInfo.time}:00`,
               duration: collectedData.selected_appointment.duration,
@@ -733,6 +736,7 @@ let openaiService = {
           };
         } else {
           const rescheduleResult = await this.processReschedule({
+              phone,
             appointment_id: collectedData.selected_appointment.appointment_id,
             new_date: `${collectedData.new_date} ${newTimeInfo.time}:00`,
             duration: collectedData.selected_appointment.duration,
@@ -748,6 +752,7 @@ let openaiService = {
         const confirmation = msgClean.toLowerCase();
         if (confirmation === "sim" || confirmation === "s") {
           const rescheduleResult = await this.processReschedule({
+              phone,
             appointment_id: collectedData.selected_appointment.appointment_id,
             new_date: `${collectedData.new_date} ${collectedData.time}:00`,
             duration: collectedData.selected_appointment.duration,
@@ -887,7 +892,7 @@ let openaiService = {
       });
       return JSON.parse(response.choices[0].message.content);
     } catch (error) {
-      console.error("[NLU Error]", error);
+      console.error("[NLU Error]", error?.status || error?.code || String(error?.message || error).slice(0, 120));
       return {};
     }
   },
@@ -1001,17 +1006,8 @@ let openaiService = {
 
     sql += ` ORDER BY relevance DESC LIMIT 5`;
 
-    console.log(
-      `\n[BANCO - BUSCA DE SERVIÇO] Iniciando busca por RELEVÂNCIA...`,
-    );
-    console.log(`[BANCO - BUSCA DE SERVIÇO] Termos buscados (OR):`, queries);
-    console.log(`[BANCO - SQL Gerado]:`, sql);
 
     const results = await functions.executeSql(sql, finalParams);
-
-    console.log(
-      `[BANCO - BUSCA DE SERVIÇO] Total encontrados (bruto): ${results.length}`,
-    );
 
     let finalResults = [];
 
@@ -1019,21 +1015,7 @@ let openaiService = {
       const maxScore = results[0].relevance;
 
       finalResults = results.filter((r) => r.relevance === maxScore);
-
-      console.log(
-        `[BANCO - BUSCA DE SERVIÇO] Nota Máxima alcançada: ${maxScore}`,
-      );
-      console.log(
-        `[BANCO - BUSCA DE SERVIÇO] Filtrados pelo grau máximo: ${finalResults.length}`,
-      );
-
-      finalResults.forEach((r) =>
-        console.log(
-          `  -> ID: ${r.id} | Nome: "${r.name}" | Nota de Match: ${r.relevance} | Empresa: ${r.company_name}`,
-        ),
-      );
     }
-    console.log(`------------------------------------------------------\n`);
 
     return finalResults;
   },
@@ -1150,8 +1132,13 @@ let openaiService = {
     const serviceIds = baseServices.map((s) => s.id);
 
     const dbServices = await functions.executeSql(
-      `SELECT id, value, accepts_quantity, name FROM services WHERE id IN (${serviceIds.join(",")})`,
+      `SELECT id, value, accepts_quantity, name FROM services WHERE id IN (?) AND company_id = ?`,
+      [serviceIds.length ? serviceIds : [0], company_id],
     );
+
+    if (!serviceIds.length || serviceIds.some((id) => !dbServices.find((db) => db.id === id))) {
+      return "Não encontrei um dos serviços escolhidos para esta empresa. Podemos revisar o pedido?";
+    }
 
     let calculatedTotal = 0;
 
@@ -1210,7 +1197,7 @@ let openaiService = {
           `SELECT asaas_api_key FROM companies WHERE id = ?`,
           [company_id],
         );
-        const subaccountApiKey = companyData[0].asaas_api_key;
+        const subaccountApiKey = decryptKey(companyData[0]?.asaas_api_key);
 
         if (!subaccountApiKey) {
           throw new Error(
@@ -1280,12 +1267,19 @@ let openaiService = {
     }
   },
 
+  // Reagendamento: o agendamento precisa ser da empresa informada E de um cliente cujo
+  // telefone é o do remetente. A posse é revalidada dentro da transação, com ensureSlot.
   processReschedule: async function (args) {
-    const { appointment_id, new_date } = args;
+    const { appointment_id, new_date, company_id, phone } = args;
+    const phones = phoneCandidates(phone);
+    if (!phones.length || !appointment_id || !company_id) return "Agendamento não encontrado.";
 
     const app = await functions.executeSql(
-      `SELECT date, duration, company_id, status FROM appointment_status_view WHERE id = ?`,
-      [appointment_id],
+      `SELECT a.date, a.duration, a.company_id, a.status
+         FROM appointment_status_view a
+         INNER JOIN customers cust ON cust.id = a.customer_id AND cust.company_id = a.company_id
+        WHERE a.id = ? AND a.company_id = ? AND REGEXP_REPLACE(cust.tel, '[^0-9]', '') IN (?)`,
+      [appointment_id, company_id, phones],
     );
 
     if (app.length === 0) return "Agendamento não encontrado.";
@@ -1306,10 +1300,32 @@ let openaiService = {
       return "O novo horário escolhido acabou de ficar indisponível.";
     }
 
-    await functions.executeSql(
-      `UPDATE appointments SET date = ?, notified_1h = 0 WHERE id = ?`,
-      [new_date, appointment_id],
-    );
+    try {
+      await functions.executeTransaction(async (query) => {
+        // Mesma ordem de locks da criação: empresa primeiro, depois o agendamento.
+        await query(`SELECT id FROM companies WHERE id = ? FOR UPDATE`, [company_id]);
+        const owned = await query(
+          `SELECT a.id, a.duration, a.canceled, a.checkin
+             FROM appointments a
+             INNER JOIN customers cust ON cust.id = a.customer_id AND cust.company_id = a.company_id
+            WHERE a.id = ? AND a.company_id = ? AND REGEXP_REPLACE(cust.tel, '[^0-9]', '') IN (?)
+            FOR UPDATE`,
+          [appointment_id, company_id, phones],
+        );
+        if (!owned.length || owned[0].canceled || owned[0].checkin) throw new Error("NOT_OWNED");
+        await ensureSlot(query, company_id, new_date, owned[0].duration, appointment_id);
+        await query(
+          `UPDATE appointments SET date = ?, notified_1h = 0 WHERE id = ? AND company_id = ?`,
+          [new_date, appointment_id, company_id],
+        );
+      });
+    } catch (error) {
+      if (error?.message === "NOT_OWNED") return "Agendamento não encontrado.";
+      if (error?.message === "Já existe um agendamento neste intervalo.") return "O novo horário escolhido acabou de ficar indisponível.";
+      console.error("[Bot] Falha ao reagendar:", String(error?.message || error).slice(0, 200));
+      return "Não foi possível reagendar agora. Tente novamente em instantes.";
+    }
+
     return (
       "Prontinho! Seu agendamento foi reagendado para " +
       moment(new_date).format("DD/MM [às] HH:mm") +
@@ -1317,20 +1333,25 @@ let openaiService = {
     );
   },
 
+  // Só agendamentos de clientes com o telefone do remetente. O CPF informado é um segundo
+  // fator: se o cadastro tem CPF, ele precisa bater.
   getCustomerAppointments: async function (phone, cpf = null) {
-    let sql = `
+    const phones = phoneCandidates(phone);
+    if (!phones.length) return [];
+    const cleanCpf = String(cpf || "").replace(/\D/g, "");
+    const sql = `
             SELECT a.id as appointment_id, a.date, a.duration, c.name as company_name, a.company_id
             FROM appointment_status_view a
-            INNER JOIN customers cust ON a.customer_id = cust.id
+            INNER JOIN customers cust ON a.customer_id = cust.id AND cust.company_id = a.company_id
             INNER JOIN companies c ON a.company_id = c.id
-            WHERE (cust.tel = ? OR cust.cpf = ?) 
-            AND a.date > NOW() 
+            WHERE REGEXP_REPLACE(cust.tel, '[^0-9]', '') IN (?)
+            AND (cust.cpf IS NULL OR REGEXP_REPLACE(cust.cpf, '[^0-9]', '') IN ('', '00000000000') OR REGEXP_REPLACE(cust.cpf, '[^0-9]', '') = ?)
+            AND a.date > NOW()
             AND a.status = 'agendado'
             ORDER BY a.date ASC
         `;
-    return await functions.executeSql(sql, [phone, cpf]);
+    return await functions.executeSql(sql, [phones, cleanCpf]);
   },
-
   getCompanyScheduleAndAppointments: async function (company_id, date) {
     const dayMap = {
       1: "Domingo",
@@ -1377,6 +1398,8 @@ let openaiService = {
     };
   },
 
+  // Cliente do remetente: primeiro pelo telefone (dígitos, com/sem 55 e 9º dígito), depois
+  // por CPF válido sem telefone conflitante. CPF ausente/inválido nunca agrupa clientes.
   getOrCreateCustomer: async function (
     phone,
     name,
@@ -1385,63 +1408,69 @@ let openaiService = {
     email,
     company_id,
   ) {
-    const cleanCpf = cpf ? cpf.replace(/\D/g, "") : "00000000000";
-    let formattedBirthday =
-      birthday && birthday.includes("-")
+    const digitsCpf = String(cpf || "").replace(/\D/g, "");
+    const cleanCpf = digitsCpf.length === 11 && !/^(\d)\1{10}$/.test(digitsCpf) ? digitsCpf : null;
+    const formattedBirthday =
+      typeof birthday === "string" && /^\d{4}-\d{2}-\d{2}$/.test(birthday)
         ? `${birthday} 00:00:00`
-        : "1900-01-01 00:00:00";
-
+        : null;
     const finalName =
-      name && name !== "Não Informado" ? name : "Cliente WhatsApp";
+      typeof name === "string" && name.trim().length >= 2 && name !== "Não Informado"
+        ? name.trim().slice(0, 255)
+        : "Cliente WhatsApp";
+    const cleanEmail = typeof email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email.slice(0, 255) : null;
+    const phones = phoneCandidates(phone);
+    if (!phones.length) throw new Error("Telefone inválido.");
+    const isPlaceholder = (value) => !value || value === "Não Informado" || value === "Cliente WhatsApp" || value.length < 3;
 
     let results = await functions.executeSql(
-      `SELECT id, name FROM customers WHERE cpf = ? AND company_id = ?`,
-      [cleanCpf, company_id],
+      `SELECT id, name, cpf, email FROM customers WHERE company_id = ? AND REGEXP_REPLACE(tel, '[^0-9]', '') IN (?) ORDER BY id LIMIT 1`,
+      [company_id, phones],
     );
+
+    if (results.length === 0 && cleanCpf) {
+      results = await functions.executeSql(
+        `SELECT id, name, cpf, email FROM customers WHERE company_id = ? AND REGEXP_REPLACE(cpf, '[^0-9]', '') = ? AND (tel IS NULL OR tel = '') ORDER BY id LIMIT 1`,
+        [company_id, cleanCpf],
+      );
+    }
 
     if (results.length > 0) {
       const existing = results[0];
-      if (
-        !existing.name ||
-        existing.name === "Não Informado" ||
-        existing.name.length < 3
-      ) {
-        await functions.executeSql(
-          `UPDATE customers SET name = ?, email = ?, birthday = ? WHERE id = ?`,
-          [finalName, email || null, formattedBirthday, existing.id],
-        );
-      }
+      // Completa só o que falta; não sobrescreve dados cadastrados pela empresa.
+      await functions.executeSql(
+        `UPDATE customers SET name = ?, cpf = COALESCE(NULLIF(cpf, ''), ?), email = COALESCE(email, ?), tel = COALESCE(NULLIF(tel, ''), ?) WHERE id = ? AND company_id = ?`,
+        [isPlaceholder(existing.name) ? finalName : existing.name, cleanCpf, cleanEmail, localPhone(phone), existing.id, company_id],
+      );
       return existing.id;
     }
 
     results = await functions.executeSql(
-      `SELECT id FROM customers WHERE phone = ? AND company_id = ?`,
-      [phone, company_id],
-    );
-
-    if (results.length > 0) {
-      const existingId = results[0].id;
-      await functions.executeSql(
-        `UPDATE customers SET name = ?, cpf = ?, email = ?, birthday = ? WHERE id = ?`,
-        [finalName, cleanCpf, email || null, formattedBirthday, existingId],
-      );
-      return existingId;
-    }
-
-    results = await functions.executeSql(
-      `INSERT INTO customers (name, birthday, phone, company_id, cpf, email) VALUES (?, ?, ?, ?, ?, ?)`,
-      [
-        finalName,
-        formattedBirthday,
-        phone,
-        company_id,
-        cleanCpf,
-        email || null,
-      ],
+      `INSERT INTO customers (name, birthday, tel, company_id, cpf, email) VALUES (?, ?, ?, ?, ?, ?)`,
+      [finalName, formattedBirthday, localPhone(phone), company_id, cleanCpf, cleanEmail],
     );
 
     return results.insertId;
   },
 };
+
+// Variações do mesmo número: com/sem DDI 55 e com/sem o 9º dígito de celular.
+function phoneCandidates(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits.length < 10 || digits.length > 13) return [];
+  const local = digits.length >= 12 && digits.startsWith("55") ? digits.slice(2) : digits;
+  const variants = new Set([local]);
+  if (local.length === 10) variants.add(local.slice(0, 2) + "9" + local.slice(2));
+  if (local.length === 11 && local[2] === "9") variants.add(local.slice(0, 2) + local.slice(3));
+  for (const v of [...variants]) variants.add("55" + v);
+  return [...variants];
+}
+
+function localPhone(phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  return digits.length >= 12 && digits.startsWith("55") ? digits.slice(2) : digits;
+}
+
+openaiService.phoneCandidates = phoneCandidates;
 
 module.exports = openaiService;

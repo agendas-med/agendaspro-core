@@ -1,6 +1,7 @@
 const functions = require('../utils/functions');
 const sales = require('./salesService');
 const asaas = require('./asaasService');
+const { decryptKey } = require('./asaasKeys');
 const cents = value => Math.round(Number(value) * 100);
 
 async function record(query, sale, amount, paymentType, externalId = null) {
@@ -31,14 +32,14 @@ const paymentsService = {
       const [company] = await query('SELECT asaas_api_key, asaas_status FROM companies WHERE id = ?', [companyId]);
       if (!company?.asaas_api_key || company.asaas_status !== 'APPROVED') throw new Error('Configure e aprove a conta Asaas antes de gerar o Pix.');
       const [customer] = await query('SELECT name, cpf, tel, email FROM customers WHERE id = ? AND company_id = ?', [sale.customer_id, companyId]);
-      const customerId = await asaas.getOrCreateCustomer(customer, company.asaas_api_key);
+      const customerId = await asaas.getOrCreateCustomer(customer, decryptKey(company.asaas_api_key));
       const pix = await asaas.createPixCharge({ customerAsaasId: customerId, value: amount,
-        externalReference: `SALE_${sale.id}`, description: `Venda #${sale.id} no AgendasPRO` }, company.asaas_api_key);
+        externalReference: `SALE_${sale.id}`, description: `Venda #${sale.id} no AgendasPRO` }, decryptKey(company.asaas_api_key));
       try {
         await query('UPDATE sales SET pix_asaas_id = ?, pix_payload = ?, pix_expiration_date = ?, pix_encoded_image = ? WHERE id = ? AND company_id = ?', [pix.paymentId, pix.payload, pix.expirationDate, pix.encodedImage, sale.id, companyId]);
         await query("INSERT INTO accounts_receivable (sale_id, customer_id, amount, payment_type, status) VALUES (?, ?, ?, 'pix_asaas', 'EM ABERTO')", [sale.id, sale.customer_id, amount]);
       } catch (error) {
-        await asaas.cancelCharge(pix.paymentId, company.asaas_api_key).catch(() => {});
+        await asaas.cancelCharge(pix.paymentId, decryptKey(company.asaas_api_key)).catch(() => {});
         throw error;
       }
       return { pix };
@@ -49,7 +50,7 @@ const paymentsService = {
       const sale = await sales.lockSale(query, saleId, companyId);
       if (!sale.pix_asaas_id) return;
       const [company] = await query('SELECT asaas_api_key FROM companies WHERE id = ?', [companyId]);
-      await asaas.cancelCharge(sale.pix_asaas_id, company.asaas_api_key);
+      await asaas.cancelCharge(sale.pix_asaas_id, decryptKey(company.asaas_api_key));
       await query("DELETE FROM accounts_receivable WHERE sale_id = ? AND payment_type = 'pix_asaas' AND status = 'EM ABERTO'", [sale.id]);
       await query('UPDATE sales SET pix_asaas_id = NULL, pix_payload = NULL, pix_expiration_date = NULL, pix_encoded_image = NULL WHERE id = ? AND company_id = ?', [sale.id, companyId]);
     });
@@ -58,7 +59,9 @@ const paymentsService = {
     if (!payment?.id || !/^(APP|SALE)_\d+$/.test(payment.externalReference || '') || !Number.isFinite(Number(payment.value)) || cents(payment.value) < 1) throw new Error('Notificação de pagamento inválida.');
     return functions.executeTransaction(async query => {
       const [type, id] = payment.externalReference.split('_');
-      const matches = await query(`SELECT * FROM sales WHERE ${type === 'APP' ? 'appointment_id' : 'id'} = ? AND pix_asaas_id = ? FOR UPDATE`, [id, payment.id]);
+      const matches = type === 'APP'
+        ? await query('SELECT * FROM sales WHERE appointment_id = ? AND pix_asaas_id = ? FOR UPDATE', [id, payment.id])
+        : await query('SELECT * FROM sales WHERE id = ? AND pix_asaas_id = ? FOR UPDATE', [id, payment.id]);
       const sale = matches[0];
       // Após confirmar, o identificador fica em payments para reconhecer reentregas.
       const existing = await query('SELECT id FROM payments WHERE external_id = ?', [payment.id]);
@@ -69,6 +72,30 @@ const paymentsService = {
       await record(query, sale, Number(payment.value), 'pix_asaas', payment.id);
       await query('UPDATE sales SET pix_asaas_id = NULL, pix_payload = NULL, pix_expiration_date = NULL, pix_encoded_image = NULL WHERE id = ?', [sale.id]);
       return { received: true };
+    });
+  },
+  // Eventos que não são recebimento. Todos idempotentes (reentrega não muda o resultado).
+  // OVERDUE/DELETED: a cobrança Pix em aberto deixa de valer; a venda volta a aceitar nova cobrança.
+  async expire(payment) {
+    if (!payment?.id) throw new Error('Notificação de pagamento inválida.');
+    return functions.executeTransaction(async query => {
+      const [sale] = await query("SELECT id FROM sales WHERE pix_asaas_id = ? AND status = 'em_aberto' FOR UPDATE", [payment.id]);
+      if (!sale) return { ignored: true };
+      await query("DELETE FROM accounts_receivable WHERE sale_id = ? AND payment_type = 'pix_asaas' AND status = 'EM ABERTO'", [sale.id]);
+      await query('UPDATE sales SET pix_asaas_id = NULL, pix_payload = NULL, pix_expiration_date = NULL, pix_encoded_image = NULL WHERE id = ?', [sale.id]);
+      return { expired: true };
+    });
+  },
+  // REFUNDED/CHARGEBACK: marca o pagamento já registrado (sem apagar histórico) e o agendamento.
+  async markReversal(payment, status) {
+    if (!payment?.id) throw new Error('Notificação de pagamento inválida.');
+    return functions.executeTransaction(async query => {
+      const [row] = await query('SELECT p.id, p.sale_id, s.appointment_id, s.company_id FROM payments p JOIN sales s ON s.id = p.sale_id WHERE p.external_id = ? FOR UPDATE', [payment.id]);
+      if (!row) return { ignored: true };
+      const refunded = status === 'REFUNDED' || status === 'PARTIALLY_REFUNDED';
+      await query('UPDATE payments SET external_status = ?, refunded_at = IF(?, COALESCE(refunded_at, NOW()), refunded_at) WHERE id = ?', [status, refunded ? 1 : 0, row.id]);
+      if (row.appointment_id && refunded) await query("UPDATE appointments SET payment_status = 'estornado' WHERE id = ? AND company_id = ?", [row.appointment_id, row.company_id]);
+      return { updated: true };
     });
   },
 };
