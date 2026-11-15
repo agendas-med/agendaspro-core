@@ -29,10 +29,10 @@ const uploadImageToS3 = async (base64String, pathFolder) => {
     if (!process.env.AWS_S3_BUCKET) {
         const fs = require('node:fs/promises');
         const path = require('node:path');
-        const directory = path.join(__dirname, '../public/uploads');
+        const directory = path.join(__dirname, '../static/uploads');
         await fs.mkdir(directory, { recursive: true });
         await fs.writeFile(path.join(directory, uniqueFileName), buffer);
-        return `${process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3001}`}/public/uploads/${uniqueFileName}`;
+        return `${process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 3001}`}/static/uploads/${uniqueFileName}`;
     }
     const key = `${pathFolder}/${uniqueFileName}`;
 

@@ -78,9 +78,19 @@ app.use("/webhook", webhookRoute);
 app.use("/internal", internalRoute);
 app.use("/files", filesRoute);
 app.use("/privacy", privacyRoute);
+app.use("/billing", require('./routes/billing'));
+app.use("/professionals", require('./routes/professionals'));
+app.use("/availability-rules", require('./routes/availabilityRules'));
+app.use("/time-blocks", require('./routes/timeBlocks'));
 app.get('/health/deep', require('./middleware/requireToken')('ADMIN_TOKEN'), internalRoute.deepHealth);
 
-app.use('/public', express.static('public', { dotfiles: 'deny', index: false }));
+// Arquivos estáticos em /static. O prefixo /public fica reservado para a API pública (F3).
+// Compatibilidade: uploads locais antigos (/public/uploads/x) redirecionam para /static/uploads/x.
+app.use('/static', express.static('static', { dotfiles: 'deny', index: false }));
+app.get('/public/uploads/:file', (req, res, next) => {
+    if (!/^[\w.-]{1,200}$/.test(req.params.file) || req.params.file.startsWith('.')) return next();
+    return res.redirect(301, `/static/uploads/${encodeURIComponent(req.params.file)}`);
+});
 
 app.use((req, res, next) => {
     const erro = new Error("Não encontrado");

@@ -5,6 +5,7 @@ nodemon.json
 !.env.example
 *.log
 public/uploads/
+static/uploads/
 .local-access.md
 logs/
 .local-processes.json
