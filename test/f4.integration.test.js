@@ -379,6 +379,29 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       assert.equal((await say(waB, { text: 'menu' })).length, 0, 'bot desligado pela empresa B');
       assert.equal((await A.as('GET', '/whatsapp/status')).data.settings.bot_enabled, true);
     });
+
+    await t.test('remarcar e cancelar pelo bot (caminho real F3)', async () => {
+      process.env.WHATSAPP_INBOUND_MAX = '1000'; // waBook já mandou muitas mensagens neste minuto
+      t.after?.(() => { delete process.env.WHATSAPP_INBOUND_MAX; });
+      const [{ public_id: publicId, appointment_id: appointmentId }] = await sql('SELECT public_id, appointment_id FROM public_bookings WHERE company_id = ?', [A.companyId]);
+      await say(waBook, { text: 'menu' });
+      const list = await say(waBook, { replyId: 'm:mine' });
+      assert.deepEqual(rowIds(list[0]), [`b:${publicId}`]);
+      const actions = await say(waBook, { replyId: `b:${publicId}` });
+      assert.deepEqual(actions[0].body.interactive.action.buttons.map(b => b.reply.id), ['a:cancel', 'a:resched', 'm:menu']);
+      await say(waBook, { replyId: 'a:resched' });
+      await say(waBook, { replyId: `d:${D}` });
+      const moved = await say(waBook, { replyId: 't:11:00' });
+      assert.match(bodyOf(moved[0]), /Remarcado/);
+      const [after] = await sql("SELECT DATE_FORMAT(date, '%Y-%m-%d %H:%i') AS wall, canceled FROM appointments WHERE id = ?", [appointmentId]);
+      assert.deepEqual([after.wall, Number(after.canceled)], [`${D} 11:00`, 0]);
+      await say(waBook, { replyId: 'm:mine' });
+      await say(waBook, { replyId: `b:${publicId}` });
+      await say(waBook, { replyId: 'a:cancel' });
+      const canceled = await say(waBook, { replyId: 'x:yes' });
+      assert.match(bodyOf(canceled[0]), /cancelado/);
+      assert.equal(Number((await sql('SELECT canceled FROM appointments WHERE id = ?', [appointmentId]))[0].canceled), 1);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));

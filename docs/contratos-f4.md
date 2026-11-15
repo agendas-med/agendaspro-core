@@ -109,11 +109,14 @@ reativa temporariamente. O repositório whatsapp-bot fica sem uso: desligar o pr
 2. System User com token permanente (`whatsapp_business_messaging`, `whatsapp_business_management`)
    → `META_ACCESS_TOKEN`. App Secret → `META_APP_SECRET`.
 3. Webhook: `https://<api>/webhook/meta`, verify token = `META_VERIFY_TOKEN`, assinar o campo `messages`.
-4. Criar e aprovar os 5 modelos acima (texto em `sql/migrations/008_f4_whatsapp.sql`) e marcar
-   `approved` em `whatsapp_templates`.
+4. Criar e aprovar os 5 modelos acima (texto em `sql/migrations/008_f4_whatsapp.sql`). Depois
+   `POST /internal/whatsapp/templates/sync` (Bearer `ADMIN_TOKEN`, usa `META_WABA_ID`) atualiza o status
+   em `whatsapp_templates`; sem a sync, `UPDATE whatsapp_templates SET status='approved'` manual.
 
 ### Riscos conhecidos
 - Resposta do bot que falhou não é reenviada em retry (o dedupe por wamid barra o reprocessamento).
 - Conversa pertence a uma empresa por vez (trocar de empresa via slug).
 - Agendamento pelo bot: só números BR; listas com até 10 itens.
 - Payload do job guarda o texto da mensagem (dado pessoal; limpar jobs antigos).
+- Remarcação feita pelo bot não dispara o modelo `agendamento_remarcado` (a resposta já vai na conversa).
+- "Hoje" do bot usa o fuso padrão (`APP_TIMEZONE`), não um fuso por empresa.
