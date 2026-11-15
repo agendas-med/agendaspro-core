@@ -89,9 +89,11 @@ let reportsService = {
             }
         });
     },
-    retornaFaturamento: function (company_id, competence, range, tipo) {
+    retornaFaturamento: function (company_id, competence, range) {
         return new Promise((resolve, reject) => {
             let dateFilter, dateFormat, formatLabel, titleLabel;
+            let filterParams = [];
+            if (typeof range !== "string") return reject(new Error("Período inválido."));
             let allPeriods = [];
     
             if (competence === "anual") {
@@ -99,7 +101,8 @@ let reportsService = {
                     return reject(new Error("Ano inválido. Use o formato 'YYYY'."));
                 }
     
-                dateFilter = `YEAR(a.date) = ${range}`;
+                dateFilter = "YEAR(a.date) = ?";
+                filterParams = [Number(range)];
                 dateFormat = "%Y-%m"; // Agrupa por mês
                 formatLabel = (date) => {
                     const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
@@ -133,7 +136,8 @@ let reportsService = {
                 startOfWeek.setDate(startOfWeek.getDate() + (parseInt(week) - 1) * 7);
                 const endOfWeek = new Date(startOfWeek);
                 endOfWeek.setDate(endOfWeek.getDate() + 7);
-                dateFilter = `a.date >= '${moment(startOfWeek).format('YYYY-MM-DD')}' AND a.date < '${moment(endOfWeek).format('YYYY-MM-DD')}'`;
+                dateFilter = "a.date >= ? AND a.date < ?";
+                filterParams = [moment(startOfWeek).format('YYYY-MM-DD'), moment(endOfWeek).format('YYYY-MM-DD')];
 
                 for (let i = 0; i < 7; i++) {
                     let currentDate = new Date(startOfWeek);
@@ -160,7 +164,7 @@ let reportsService = {
                 ORDER BY periodo
             `;
     
-            functions.executeSql(query, [company_id])
+            functions.executeSql(query, [company_id, ...filterParams])
                 .then(results => {
                     let data = {};
                     let labels = new Set();

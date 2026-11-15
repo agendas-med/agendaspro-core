@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./env');
 const email = require('../config/email');
 
 let sendEmail = {

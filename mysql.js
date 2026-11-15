@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./config/env');
 const mysql = require('mysql');
 
 let pool = mysql.createPool({
@@ -8,7 +8,7 @@ let pool = mysql.createPool({
     host: process.env.MYSQL_HOST,
     port: process.env.MYSQL_PORT,
     connectionLimit: process.env.MYSQL_CONNECTION_LIMIT || 10,
-    multipleStatements: true,
+    multipleStatements: false,
     timezone: '-03:00',
     charset: 'utf8mb4'
 });

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('./config/env');
 const cron = require('node-cron');
 const notificationService = require('./services/notificationService');
 
@@ -30,7 +30,6 @@ app.use(morgan('dev'));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use(cors());
-require('dotenv').config();
 
 app.use((req, res, next) => {
     if (process.env.URL_SITE) res.header('Access-Control-Allow-Origin', process.env.URL_SITE);

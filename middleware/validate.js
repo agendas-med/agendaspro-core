@@ -7,6 +7,15 @@ const products = require("../schemas/products");
 const services = require("../schemas/services");
 const payments = require("../schemas/payments");
 
+// Header `selected-company`: apenas inteiro positivo (até 10 dígitos).
+const COMPANY_ID_PATTERN = /^\d{1,10}$/;
+
+function parseCompanyId(raw) {
+    if (typeof raw !== 'string' || !COMPANY_ID_PATTERN.test(raw.trim())) return null;
+    const id = Number(raw.trim());
+    return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 let validate = {
     validateRequest: (schema) => {
         return (req, res, next) => {
@@ -35,18 +44,22 @@ let validate = {
         services: services,
         payments: payments
     },
+    parseCompanyId,
+    // Valida o header como inteiro e exige vínculo do usuário com a empresa.
+    // Normaliza o header e expõe req.companyId para as rotas.
     validateCompanyAccess: (req, res, next) => {
-        const userId = req.usuario.id;
-        const companyId = req.headers['selected-company'];
-        
+        const userId = req.usuario?.id;
+        const companyId = parseCompanyId(req.headers['selected-company']);
+        if (!companyId || !userId) return res.status(403).send({ error: "Acesso não autorizado à empresa." });
+
         require('../utils/functions').executeSql('SELECT 1 FROM company_members WHERE company_id = ? AND user_id = ?', [companyId, userId])
           .then(rows => {
             if (!rows.length) return res.status(403).send({ error: "Acesso não autorizado à empresa." });
+            req.companyId = companyId;
+            req.headers['selected-company'] = String(companyId);
             next();
           })
-          .catch(error => {
-            return res.status(403).send({ error: "Acesso não autorizado à empresa." });
-          });
+          .catch(() => res.status(403).send({ error: "Acesso não autorizado à empresa." }));
     }
 }
 

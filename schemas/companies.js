@@ -1,5 +1,13 @@
 const Joi = require("joi");
 const errors = require("../utils/errors");
+// Horário estrito HH:mm ou HH:mm:ss (impede injeção e lixo no expediente).
+const HOUR_PATTERN = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+const hourField = () => Joi.string().pattern(HOUR_PATTERN).required().messages({
+  "string.base": errors.string.base(),
+  "string.empty": errors.string.empty(),
+  "string.pattern.base": "Horário inválido. Use HH:mm.",
+  "any.required": errors.string.empty(),
+});
 
 let schema = {
   createCompany: Joi.object({
@@ -151,20 +159,8 @@ let schema = {
             hours: Joi.array()
               .items(
                 Joi.object({
-                  initial_date: Joi.string()
-                    .required()
-                    .messages({
-                      "string.base": errors.string.base(),
-                      "any.required": errors.string.empty(),
-                    })
-                    .required(),
-                  final_date: Joi.string()
-                    .required()
-                    .messages({
-                      "string.base": errors.string.base(),
-                      "any.required": errors.string.empty(),
-                    })
-                    .required(),
+                  initial_date: hourField(),
+                  final_date: hourField(),
                 }).messages({
                   "object.base": errors.object.base(),
                   "any.required": errors.string.empty(),

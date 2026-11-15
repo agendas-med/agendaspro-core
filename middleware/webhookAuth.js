@@ -1,31 +1,22 @@
+const { safeEqual } = require('../utils/crypto');
+
+// Webhook de entrada do WhatsApp (gateway -> API). Token só por header, comparado em tempo
+// constante. WHATSAPP_INBOUND_TOKEN é o nome novo; WEBHOOK_SECRET_TOKEN segue como fallback.
 function validateWebhookToken(req, res, next) {
     const authHeader = req.headers['authorization'];
-    const apiKeyHeader = req.headers['apikey'] || req.headers['x-api-key']; 
-    const queryToken = req.query.token;
-
+    const apiKeyHeader = req.headers['apikey'] || req.headers['x-api-key'];
     let receivedToken = '';
+    if (authHeader && authHeader.startsWith('Bearer ')) receivedToken = authHeader.slice(7).trim();
+    else if (typeof apiKeyHeader === 'string') receivedToken = apiKeyHeader;
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        receivedToken = authHeader.split(' ')[1];
-    } else if (apiKeyHeader) {
-        receivedToken = apiKeyHeader;
-    } else if (queryToken) {
-        receivedToken = queryToken;
-    }
-
-    const expectedToken = process.env.WEBHOOK_SECRET_TOKEN;
-
+    const expectedToken = process.env.WHATSAPP_INBOUND_TOKEN || process.env.WEBHOOK_SECRET_TOKEN;
     if (!expectedToken) {
-        console.warn("⚠️ ALERTA: WEBHOOK_SECRET_TOKEN não configurado no .env! Bloqueando requisição por segurança.");
-        return res.status(500).json({ error: 'Server configuration error.' });
+        console.warn('[webhook] WHATSAPP_INBOUND_TOKEN não configurado; requisição bloqueada.');
+        return res.status(503).json({ error: 'Webhook não configurado.' });
     }
-
-    if (receivedToken === expectedToken) {
-        return next();
-    } else {
-        console.error(`🚨 Invasão bloqueada no Webhook! Token recebido: ${receivedToken}`);
-        return res.status(401).json({ error: 'Unauthorized: Access Denied' });
-    }
+    if (safeEqual(receivedToken, expectedToken)) return next();
+    console.warn('[webhook] token inválido recebido');
+    return res.status(401).json({ error: 'Unauthorized: Access Denied' });
 }
 
 module.exports = validateWebhookToken;

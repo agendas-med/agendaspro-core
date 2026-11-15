@@ -3,6 +3,9 @@ const sendEmails = require("../config/sendEmail");
 const emailTemplates = require("../templates/emailTemplates");
 const _usersService = require("./usersService");
 const _asaasService = require("./asaasService");
+const { encrypt, decrypt, sha256, randomToken } = require("../utils/crypto");
+const { decryptKey } = require("./asaasKeys");
+const { HttpError } = require("../middleware/errorHandler");
 
 const MEASUREMENT_UNITS = {
   1: "unidade",
@@ -125,53 +128,17 @@ let companiesService = {
         });
     });
   },
-  excludeRole: function (company_id, role_id) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        *
-                    FROM
-                        config_users_roles
-                    WHERE
-                        role_id = ?
-                `,
-          [role_id],
-        )
-        .then((results) => {
-          if (results.length > 0) {
-            reject(
-              "Você não pode excluir um cargo que ja está atribuído a alguém",
-            );
-          } else {
-            functions
-              .executeSql(
-                `
-                            DELETE FROM
-                                config_company_roles
-                            WHERE
-                                id = ? AND company_id = ? AND default_role = 0
-                        `,
-                [role_id, company_id],
-              )
-              .then((results) => {
-                if (results.affectedRows == 0) {
-                  reject("Você não pode excluir o cargo padrão da empresa");
-                }
-
-                this.returnCompanyRoles(company_id, true);
-                resolve();
-              })
-              .catch((error) => {
-                reject(error);
-              });
-          }
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
+  excludeRole: async function (company_id, role_id) {
+    // O cargo precisa ser desta empresa antes de qualquer consulta/remoção.
+    await this.assertRoleInCompany(role_id, company_id);
+    const assigned = await functions.executeSql(`SELECT 1 FROM config_users_roles WHERE role_id = ? LIMIT 1`, [role_id]);
+    if (assigned.length > 0) throw "Você não pode excluir um cargo que ja está atribuído a alguém";
+    const results = await functions.executeSql(
+      `DELETE FROM config_company_roles WHERE id = ? AND company_id = ? AND default_role = 0`,
+      [role_id, company_id],
+    );
+    if (results.affectedRows == 0) throw "Você não pode excluir o cargo padrão da empresa";
+    this.returnCompanyRoles(company_id, true).catch(() => {});
   },
   editRole: function (company_id, role_id, name, permission) {
     return new Promise((resolve, reject) => {
@@ -224,112 +191,96 @@ let companiesService = {
         });
     });
   },
-  createCompany: function (user_id, data) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const cleanDocument = data.document.replace(/\D/g, "");
+  createCompany: async function (user_id, data) {
+    const cleanDocument = String(data.document || "").replace(/\D/g, "");
+    let apiKey = null, walletId = null, asaasStatus = 'UNCONFIGURED';
+    try {
+      const walletInfo = await functions.executeSql(
+        `SELECT asaas_api_key, asaas_wallet_id, asaas_status, owner_user_id FROM asaas_wallets WHERE document = ?`,
+        [cleanDocument],
+      );
 
-        let walletInfo = await functions.executeSql(
-          `SELECT asaas_api_key, asaas_wallet_id, asaas_status FROM asaas_wallets WHERE document = ?`,
-          [cleanDocument],
-        );
-
-        let apiKey, walletId, asaasStatus;
-
-        if (walletInfo.length > 0) {
-          apiKey = walletInfo[0].asaas_api_key;
-          walletId = walletInfo[0].asaas_wallet_id;
-          asaasStatus = walletInfo[0].asaas_status || "PENDING";
-        } else if (process.env.ASAAS_API_KEY) {
-          const asaasAccount = await _asaasService.createSubaccount({
-            name: data.name,
-            email: data.email,
-            cnpj_cpf: data.document,
-            phone: data.phone,
-            cep: data.zip_code,
-            address_number: data.address_number,
-            complement: data.complement,
-            birthDate: data.birthDate,
-            companyType: data.companyType,
-            incomeValue: data.incomeValue,
-          });
-
-          apiKey = asaasAccount.apiKey;
-          walletId = asaasAccount.walletId;
-          asaasStatus = "PENDING";
-
-          await functions.executeSql(
-            `INSERT INTO asaas_wallets (document, asaas_api_key, asaas_wallet_id, asaas_status) VALUES (?, ?, ?, ?)`,
-            [cleanDocument, apiKey, walletId, asaasStatus],
-          );
-          await _asaasService.createWebhook(apiKey).catch(err => console.log("Aviso: Falha ao registrar Webhook na subconta", err.message));
-        } else {
-          apiKey = null;
-          walletId = null;
-          asaasStatus = 'UNCONFIGURED';
+      if (walletInfo.length > 0 || process.env.ASAAS_API_KEY) {
+        // Uma subconta Asaas (carteira + apiKey) nunca é compartilhada entre empresas ativas,
+        // e só o usuário que a criou pode reaproveitá-la.
+        const linked = await functions.executeSql(`SELECT id FROM companies WHERE document = ? LIMIT 1`, [cleanDocument]);
+        if (linked.length > 0) {
+          throw new HttpError(409, "Este CPF/CNPJ já está vinculado a outra empresa ativa. Use outro documento ou fale com o suporte.");
         }
+      }
 
-        functions
-          .executeSql(
-            `
+      if (walletInfo.length > 0) {
+        if (Number(walletInfo[0].owner_user_id) !== Number(user_id)) {
+          throw new HttpError(409, "Este CPF/CNPJ já possui uma conta de recebimentos vinculada a outro usuário. Fale com o suporte.");
+        }
+        apiKey = decrypt(walletInfo[0].asaas_api_key);
+        walletId = walletInfo[0].asaas_wallet_id;
+        asaasStatus = walletInfo[0].asaas_status || "PENDING";
+      } else if (process.env.ASAAS_API_KEY) {
+        const asaasAccount = await _asaasService.createSubaccount({
+          name: data.name,
+          email: data.email,
+          cnpj_cpf: data.document,
+          phone: data.phone,
+          cep: data.zip_code,
+          address_number: data.address_number,
+          complement: data.complement,
+          birthDate: data.birthDate,
+          companyType: data.companyType,
+          incomeValue: data.incomeValue,
+        });
+
+        apiKey = asaasAccount.apiKey;
+        walletId = asaasAccount.walletId;
+        asaasStatus = "PENDING";
+
+        await functions.executeSql(
+          `INSERT INTO asaas_wallets (document, asaas_api_key, asaas_wallet_id, asaas_status, owner_user_id) VALUES (?, ?, ?, ?, ?)`,
+          [cleanDocument, encrypt(apiKey), walletId, asaasStatus, user_id],
+        );
+        await _asaasService.createWebhook(apiKey).catch(() => console.warn("[Asaas] Falha ao registrar webhook na subconta"));
+      }
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      // Mensagem de negócio do Asaas (sanitizada) ou genérica; nunca o objeto do Axios.
+      const description = error?.response?.data?.errors?.[0]?.description;
+      console.error("[Asaas] Falha ao criar subconta:", error?.response?.status || error?.code || "erro");
+      throw new HttpError(400, typeof description === "string" ? description.slice(0, 300) : "Falha ao processar a conta de recebimentos.");
+    }
+
+    const results = await functions.executeSql(
+      `
                         INSERT INTO
                             companies
                             (name, address, zip_code, city, state, business_type, document, phone, email, address_number, complement, asaas_wallet_id, asaas_api_key, asaas_status)
                         VALUES
                             (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `,
-            [
-              data.name,
-              data.address,
-              data.zip_code,
-              data.city,
-              data.state,
-              data.business_type,
-              cleanDocument,
-              data.phone,
-              data.email,
-              data.address_number,
-              data.complement,
-              walletId,
-              apiKey,
-              asaasStatus,
-            ],
-          )
-          .then((results) => {
-            let promises = [];
+      [
+        data.name,
+        data.address,
+        data.zip_code,
+        data.city,
+        data.state,
+        data.business_type,
+        cleanDocument,
+        data.phone,
+        data.email,
+        data.address_number,
+        data.complement,
+        walletId,
+        apiKey ? encrypt(apiKey) : null,
+        asaasStatus,
+      ],
+    );
 
-            promises.push(
-              _usersService.enterCompany(user_id, results.insertId),
-            );
-
-            promises.push(
-              this.createRole(results.insertId, "Gerente", 1, true).then(
-                (roleId) => {
-                  return _usersService.insertRole(user_id, roleId);
-                },
-              ),
-            );
-
-            promises.push(
-              this.insertCompanyDefaultPreferences(results.insertId),
-            );
-
-            Promise.all(promises).then(() => {
-              _usersService.returnUserCompanies(user_id, true);
-              resolve(results.insertId);
-            }).catch(reject);
-          })
-          .catch((error) => {
-            reject(error);
-          });
-      } catch (error) {
-        reject(
-          error.response?.data?.errors?.[0]?.description ||
-            error.message ||
-            "Falha ao processar a conta de recebimentos.",
-        );
-      }
-    });
+    await Promise.all([
+      _usersService.enterCompany(user_id, results.insertId),
+      this.createRole(results.insertId, "Gerente", 1, true).then((roleId) => _usersService.insertRole(user_id, roleId)),
+      this.insertCompanyDefaultPreferences(results.insertId),
+    ]);
+    _usersService.returnUserCompanies(user_id, true).catch(() => {});
+    return results.insertId;
   },
   insertCompanyDefaultPreferences: function (company_id) {
     return Promise.all([
@@ -414,88 +365,40 @@ let companiesService = {
         });
     });
   },
-  editCompanyConfigurations: function (company_id, configurations) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    DELETE FROM
-                        config_companies_schedule
-                    WHERE
-                        company_id = ?
-                `,
-          [company_id],
-        )
-        .then(() => {
-          let schedulesInsert = [];
-
-          for (let i = 0; i < configurations.opening_hours.length; i++) {
-            let currentDay = configurations.opening_hours[i];
-
-            for (let j = 0; j < currentDay.hours.length; j++) {
-              let currentHour = currentDay.hours[j];
-
-              schedulesInsert.push(
-                `(${company_id}, ${currentDay.day}, "${currentHour.initial_date}", "${currentHour.final_date}")`,
-              );
-            }
-          }
-
-          if (schedulesInsert.length > 0) {
-            functions
-              .executeSql(
-                `
-                            INSERT INTO 
-                                config_companies_schedule
-                                (company_id, day, initial_date, final_date)
-                            VALUES
-                                ${schedulesInsert.join(",")}
-                        `,
-                [],
-              )
-              .then(() => {
-                this.returnCompanyConfigurations(company_id, true).catch(
-                  () => {},
-                );
-                resolve();
-              })
-              .catch((error2) => {
-                reject(error2);
-              });
-          } else {
-            this.returnCompanyConfigurations(company_id, true).catch(() => {});
-            resolve();
-          }
-        })
-        .catch((error) => {
-          reject(error);
-        });
+  editCompanyConfigurations: async function (company_id, configurations) {
+    // Horários já validados por Joi (HH:mm); ainda assim tudo vai por placeholder.
+    const rows = [];
+    for (const currentDay of configurations?.opening_hours || []) {
+      for (const currentHour of currentDay.hours || []) {
+        rows.push([company_id, currentDay.day, currentHour.initial_date, currentHour.final_date]);
+      }
+    }
+    await functions.executeTransaction(async (query) => {
+      await query(`DELETE FROM config_companies_schedule WHERE company_id = ?`, [company_id]);
+      if (rows.length > 0) {
+        await query(`INSERT INTO config_companies_schedule (company_id, day, initial_date, final_date) VALUES ?`, [rows]);
+      }
     });
+    this.returnCompanyConfigurations(company_id, true).catch(() => {});
   },
-  checkCompanyPermission: function (user_id, company_id) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        *
-                    FROM
-                        company_members
-                    WHERE
-                        user_id = ${user_id} AND company_id = ${company_id} AND (SELECT permission FROM config_company_roles ccr INNER JOIN config_users_roles cur ON cur.role_id = ccr.id WHERE ccr.company_id = ${company_id} AND cur.user_id = ${user_id}) 
-                `,
-          [],
-          true,
-          60,
-        )
-        .then((results) => {
-          if (results.length == 0) {
-            reject("Você não tem permissão de administrador");
-          }
-
-          resolve();
-        });
-    });
+  // Admin = membro da empresa com cargo (desta empresa) de permission = 1.
+  checkCompanyPermission: async function (user_id, company_id) {
+    const userId = Number(user_id);
+    const companyId = Number(company_id);
+    if (!Number.isSafeInteger(userId) || !/^\d{1,10}$/.test(String(company_id ?? "").trim()) || companyId <= 0) {
+      throw "Você não tem permissão de administrador";
+    }
+    const results = await functions.executeSql(
+      `SELECT 1 FROM company_members cm
+         INNER JOIN config_users_roles cur ON cur.user_id = cm.user_id
+         INNER JOIN config_company_roles ccr ON ccr.id = cur.role_id AND ccr.company_id = cm.company_id
+        WHERE cm.user_id = ? AND cm.company_id = ? AND ccr.permission = 1
+        LIMIT 1`,
+      [userId, companyId],
+      true,
+      60,
+    );
+    if (results.length == 0) throw "Você não tem permissão de administrador";
   },
   editCompany: function (
     user_id,
@@ -574,7 +477,16 @@ let companiesService = {
         });
     });
   },
-  inviteUser: function (
+  // Garante que o cargo pertence à empresa (impede atribuir cargo de outro tenant).
+  assertRoleInCompany: async function (role_id, company_id, query = functions.executeSql) {
+    const rows = await query(
+      `SELECT id, permission FROM config_company_roles WHERE id = ? AND company_id = ?`,
+      [role_id, company_id],
+    );
+    if (!rows.length) throw "Cargo inválido para esta empresa";
+    return rows[0];
+  },
+  inviteUser: async function (
     company_id,
     requested_user_name,
     requested_user_id,
@@ -582,122 +494,52 @@ let companiesService = {
     request_user,
     role_id,
   ) {
-    return new Promise((resolve, reject) => {
-      this.checkCompaniesFromUser(requested_user_id, company_id).then(
-        (results2) => {
-          if (results2.length > 0) {
-            reject("Este usuário já faz parte desta empresa");
-          }
+    const email = String(requested_user_email || "").trim().toLowerCase();
+    await this.assertRoleInCompany(role_id, company_id);
 
-          this.checkIfExistInvite(company_id, requested_user_email).then(
-            (results3) => {
-              if (results3.length > 0) {
-                reject("Este usuário já foi convidado para esta empresa");
-              } else {
-                _usersService
-                  .checkIfUserExists(requested_user_email)
-                  .then((results) => {
-                    let invited_user = results.user?.email;
+    const member = await functions.executeSql(
+      `SELECT 1 FROM company_members cm INNER JOIN users u ON u.id = cm.user_id
+        WHERE cm.company_id = ? AND (u.email = ? OR u.id = ?)`,
+      [company_id, email, Number(requested_user_id) || 0],
+    );
+    if (member.length > 0) throw "Este usuário já faz parte desta empresa";
 
-                    if (!results.exist) {
-                      invited_user = requested_user_email;
-                    }
+    const existing = await this.checkIfExistInvite(company_id, email);
+    if (existing.length > 0) throw "Este usuário já foi convidado para esta empresa";
 
-                    let token = functions.generateToken();
+    // Convites vencidos e não usados deixam de bloquear um novo convite.
+    await functions.executeSql(
+      `UPDATE company_invitations SET status = 'declined'
+        WHERE company_id = ? AND invited_user = ? AND status = 'pending'`,
+      [company_id, email],
+    );
 
-                    functions
-                      .executeSql(
-                        `
-                                    INSERT INTO
-                                        company_invitations
-                                        (invited_user, company_id, invited_by, token, role_id)
-                                    VALUES
-                                        (?, ?, ?, ?, ?)
-                                `,
-                        [
-                          invited_user,
-                          company_id,
-                          request_user,
-                          token,
-                          role_id,
-                        ],
-                      )
-                      .then(() => {
-                        functions
-                          .executeSql(
-                            `
-                                        SELECT
-                                            name
-                                        FROM
-                                            companies
-                                        WHERE 
-                                            id = ?
-                                    `,
-                            [company_id],
-                          )
-                          .then((results2) => {
-                            let company_name = results2[0].name;
-                            let link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${token}&email=${requested_user_email}`;
-                            let emailHtml = emailTemplates.inviteUser(
-                              requested_user_name,
-                              company_name,
-                              link_convite,
-                            );
+    // Token de 32 bytes; só o hash é persistido. Expira em 7 dias e é de uso único.
+    const token = randomToken(32);
+    await functions.executeSql(
+      `INSERT INTO company_invitations (invited_user, company_id, invited_by, token, token_hash, expires_at, role_id)
+       VALUES (?, ?, ?, NULL, ?, NOW() + INTERVAL 7 DAY, ?)`,
+      [email, company_id, request_user, sha256(token), role_id],
+    );
 
-                            sendEmails
-                              .sendEmail(
-                                emailHtml,
-                                "Convite para entrar em uma empresa",
-                                process.env.USER_EMAIL,
-                                requested_user_email,
-                              )
-                              .then(() => {
-                                this.returnCompanyUsers(company_id, true);
-                                resolve();
-                              });
-                          });
-                      })
-                      .catch((error) => {
-                        reject(error);
-                      });
-                  })
-                  .catch((error) => {
-                    reject(error);
-                  });
-              }
-            },
-          );
-        },
-      );
-    });
+    const company = await functions.executeSql(`SELECT name FROM companies WHERE id = ?`, [company_id]);
+    const link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
+    const emailHtml = emailTemplates.inviteUser(requested_user_name, company[0]?.name || "", link_convite);
+    await sendEmails.sendEmail(emailHtml, "Convite para entrar em uma empresa", process.env.USER_EMAIL, email);
+    this.returnCompanyUsers(company_id, true).catch(() => {});
+    return token;
   },
   checkIfExistInvite: function (company_id, email) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        *
-                    FROM
-                        company_invitations
-                    WHERE
-                        company_id = ? AND invited_user = ?
-                `,
-          [company_id, email],
-        )
-        .then((results) => {
-          resolve(results);
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
+    return functions.executeSql(
+      `SELECT id FROM company_invitations
+        WHERE company_id = ? AND invited_user = ? AND status = 'pending' AND used_at IS NULL
+          AND (expires_at IS NULL OR expires_at > NOW())`,
+      [company_id, email],
+    );
   },
   returnCompanyUsers: function (company_id, clearCache = false) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
+    return functions.executeSql(
+      `
                     SELECT
                         u.id,
                         u.name,
@@ -713,9 +555,9 @@ let companiesService = {
                     INNER JOIN
                         config_users_roles cur ON cur.user_id = u.id
                     INNER JOIN
-                        config_company_roles ccr ON ccr.id = cur.role_id AND ccr.company_id = ${company_id}
+                        config_company_roles ccr ON ccr.id = cur.role_id AND ccr.company_id = ?
                     WHERE
-                        cm.company_id = ${company_id}
+                        cm.company_id = ?
 
                     UNION
 
@@ -730,289 +572,110 @@ let companiesService = {
                     FROM
                         company_invitations ci
                     WHERE
-                        ci.company_id = ${company_id} AND ci.status = "pending"
+                        ci.company_id = ? AND ci.status = "pending" AND ci.used_at IS NULL
+                        AND (ci.expires_at IS NULL OR ci.expires_at > NOW())
 
-                    ORDER BY id IS NULL, name;
+                    ORDER BY id IS NULL, name
                 `,
-          [],
-          !clearCache,
-          60,
-        )
-        .then((results) => {
-          resolve(results);
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
+      [company_id, company_id, company_id],
+      !clearCache,
+      60,
+    );
   },
-  changeUserRole: function (role_id, user_id, company_id) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    UPDATE 
-                        config_users_roles
-                    SET
-                        role_id = ?
-                    WHERE
-                        user_id = ?
-                `,
-          [role_id, user_id],
-        )
-        .then(() => {
-          this.returnCompanyUsers(company_id, true);
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
+  changeUserRole: async function (role_id, user_id, company_id) {
+    // Cargo e usuário precisam pertencer à empresa; só o vínculo desta empresa é alterado.
+    await this.assertRoleInCompany(role_id, company_id);
+    const member = await functions.executeSql(
+      `SELECT 1 FROM company_members WHERE company_id = ? AND user_id = ?`,
+      [company_id, user_id],
+    );
+    if (!member.length) throw "Usuário não pertence a esta empresa";
+    const result = await functions.executeSql(
+      `UPDATE config_users_roles SET role_id = ?
+        WHERE user_id = ? AND role_id IN (SELECT id FROM config_company_roles WHERE company_id = ?)`,
+      [role_id, user_id, company_id],
+    );
+    if (!result.affectedRows) {
+      await functions.executeSql(`INSERT INTO config_users_roles (role_id, user_id) VALUES (?, ?)`, [role_id, user_id]);
+    }
+    this.returnCompanyUsers(company_id, true).catch(() => {});
   },
-  checkTokenValidity: function (token, user_email) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        invited_user AS email,
-                        invited_user = ? AS email_match
-                    FROM
-                        company_invitations
-                    WHERE
-                        token = ? AND status = "pending"
-                `,
-          [user_email, token],
-        )
-        .then((results) => {
-          if (results.length == 0) {
-            reject("Token inválido ou expirado.");
-          } else if (results[0].email_match == 0) {
-            reject("E-mail inválido para o convite");
-          } else {
-            resolve(results[0].email);
-          }
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
+  // Busca convite válido (pendente, não usado, não expirado) pelo hash do token.
+  findValidInvite: async function (token, query = functions.executeSql, forUpdate = false) {
+    if (typeof token !== "string" || token.length < 16 || token.length > 200) return null;
+    const rows = await query(
+      `SELECT id, company_id, invited_user, role_id FROM company_invitations
+        WHERE token_hash = ? AND status = 'pending' AND used_at IS NULL
+          AND expires_at IS NOT NULL AND expires_at > NOW()${forUpdate ? " FOR UPDATE" : ""}`,
+      [sha256(token)],
+    );
+    return rows[0] || null;
   },
-  updateInvite: function (token) {
-    return new Promise((resolve) => {
-      functions
-        .executeSql(
-          `
-                    UPDATE
-                        company_invitations
-                    SET
-                        status = "accepted"
-                    WHERE
-                        token = ?;
-                `,
-          [token],
-        )
-        .then(() => {
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
+  checkTokenValidity: async function (token, user_email) {
+    const invite = await this.findValidInvite(token);
+    if (!invite) throw "Token inválido ou expirado.";
+    if (String(invite.invited_user).toLowerCase() !== String(user_email || "").trim().toLowerCase()) {
+      throw "E-mail inválido para o convite";
+    }
+    return invite.invited_user;
   },
-  enterCompanyWithToken: function (token) {
-    return new Promise((resolve) => {
-      functions
-        .executeSql(
-          `
-                    INSERT INTO 
-                            company_members
-                            (user_id, company_id)
-                        VALUES
-                            (
-                                (SELECT id from users WHERE email = (SELECT invited_user FROM company_invitations WHERE token = '${token}')),
-                                (SELECT company_id FROM company_invitations WHERE token = '${token}')
-                            )
-                `,
-          [],
-        )
-        .then(() => {
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  insertRoleFromInvite: function (token) {
-    return new Promise((resolve, reject) => {
-      functions
-        .executeSql(
-          `
-                    INSERT INTO 
-                        config_users_roles
-                        (role_id, user_id)
-                    VALUES
-                        (
-                            (SELECT role_id FROM company_invitations WHERE token = '${token}'), 
-                            (SELECT id from users WHERE email = (SELECT invited_user FROM company_invitations WHERE token = '${token}'))
-                        )
-                `,
-          [],
-        )
-        .then(() => {
-          resolve();
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  enterCompany: function (token, user_email) {
-    return new Promise((resolve, reject) => {
-      let self = this;
-
-      this.checkTokenValidity(token, user_email)
-        .then(() => {
-          let promises = [];
-
-          promises.push(this.updateInvite(token));
-
-          promises.push(this.enterCompanyWithToken(token));
-
-          promises.push(this.insertRoleFromInvite(token));
-
-          promises.push(
-            functions
-              .executeSql(
-                `
-                            SELECT
-                                company_id
-                            FROM
-                                company_invitations
-                            WHERE
-                                token = ?
-                        `,
-                [token],
-              )
-              .then((results) => {
-                self.returnCompanyUsers(results[0].company_id, true);
-              }),
-          );
-
-          promises.push(
-            functions
-              .executeSql(
-                `
-                            SELECT
-                                id
-                            FROM
-                                users
-                            WHERE 
-                                email = (SELECT invited_user FROM company_invitations WHERE token = ?)
-                        `,
-                [token],
-              )
-              .then((results) => {
-                _usersService.returnUserCompanies(results[0].id, true);
-              })
-              .catch(() => {
-                reject("Email inválido para o convite");
-              }),
-          );
-
-          Promise.all(promises).then(() => {
-            resolve();
-          });
-        })
-        .catch((error) => {
-          reject(error);
-        });
-    });
-  },
-  removeUserFromCompany: function (
-    company_id,
-    exclude_user_id,
-    connected_user_id,
-  ) {
-    return new Promise((resolve, reject) => {
-      if (exclude_user_id == connected_user_id) {
-        reject("Você não pode se auto remover da empresa");
+  // Aceite do convite: transação única, uso único, cargo revalidado contra a empresa.
+  enterCompany: async function (token, user_email) {
+    const result = await functions.executeTransaction(async (query) => {
+      const invite = await this.findValidInvite(token, query, true);
+      if (!invite) throw "Token inválido ou expirado.";
+      if (String(invite.invited_user).toLowerCase() !== String(user_email || "").trim().toLowerCase()) {
+        throw "E-mail inválido para o convite";
       }
+      const users = await query(`SELECT id FROM users WHERE email = ?`, [invite.invited_user]);
+      if (!users.length) throw "Email inválido para o convite";
+      const userId = users[0].id;
+      await this.assertRoleInCompany(invite.role_id, invite.company_id, query);
 
-      functions
-        .executeSql(
-          `
-                    SELECT
-                        *
-                    FROM
-                        company_members
-                    WHERE
-                        company_id = ?
-                `,
-          [company_id],
-        )
-        .then((results) => {
-          if (results.length == 0) {
-            reject("Ocorreu um erro ao verificar os membros da empresa");
-          }
-
-          if (results.length == 1) {
-            reject(
-              "Você não pode sair de uma empresa cujo o único membro é você",
-            );
-          }
-
-          functions
-            .executeSql(
-              `
-                        DELETE FROM
-                            company_members
-                        WHERE
-                            company_id = ${company_id} AND user_id = ${exclude_user_id};
-
-                        DELETE FROM
-                            company_invitations
-                        WHERE
-                            company_id = ${company_id} AND invited_user = (SELECT email FROM users WHERE id = '${exclude_user_id}');
-
-                        DELETE FROM
-                            config_users_roles
-                        WHERE
-                            user_id = ${exclude_user_id} AND role_id IN (SELECT id FROM config_company_roles WHERE company_id = ${company_id})
-                    `,
-              [],
-            )
-            .then((results) => {
-              if (results.affectedRows == 0) {
-                reject("Ocorreu um erro ao remover o usuário");
-              }
-
-              this.returnCompanyUsers(company_id, true);
-              resolve();
-            })
-            .catch((error) => {
-              reject(error);
-            });
-        });
+      const member = await query(`SELECT 1 FROM company_members WHERE user_id = ? AND company_id = ?`, [userId, invite.company_id]);
+      if (!member.length) await query(`INSERT INTO company_members (user_id, company_id) VALUES (?, ?)`, [userId, invite.company_id]);
+      await query(
+        `DELETE FROM config_users_roles WHERE user_id = ? AND role_id IN (SELECT id FROM config_company_roles WHERE company_id = ?)`,
+        [userId, invite.company_id],
+      );
+      await query(`INSERT INTO config_users_roles (role_id, user_id) VALUES (?, ?)`, [invite.role_id, userId]);
+      const used = await query(
+        `UPDATE company_invitations SET status = 'accepted', used_at = NOW() WHERE id = ? AND used_at IS NULL`,
+        [invite.id],
+      );
+      if (used.affectedRows !== 1) throw "Token inválido ou expirado.";
+      return { userId, companyId: invite.company_id };
     });
+    this.returnCompanyUsers(result.companyId, true).catch(() => {});
+    _usersService.returnUserCompanies(result.userId, true).catch(() => {});
   },
-  findUserByToken: function (token, user_email) {
-    return new Promise((resolve, reject) => {
-      this.checkTokenValidity(token, user_email)
-        .then((results) => {
-          _usersService.checkIfUserExists(results).then((results) => {
-            if (results.exist) {
-              resolve(true);
-            }
+  removeUserFromCompany: async function (company_id, exclude_user_id, connected_user_id) {
+    if (Number(exclude_user_id) === Number(connected_user_id)) {
+      throw "Você não pode se auto remover da empresa";
+    }
+    const members = await functions.executeSql(`SELECT user_id FROM company_members WHERE company_id = ?`, [company_id]);
+    if (members.length == 0) throw "Ocorreu um erro ao verificar os membros da empresa";
+    if (members.length == 1) throw "Você não pode sair de uma empresa cujo o único membro é você";
+    if (!members.some((m) => Number(m.user_id) === Number(exclude_user_id))) throw "Ocorreu um erro ao remover o usuário";
 
-            resolve(false);
-          });
-        })
-        .catch((error) => {
-          reject(error);
-        });
+    await functions.executeTransaction(async (query) => {
+      await query(`DELETE FROM company_members WHERE company_id = ? AND user_id = ?`, [company_id, exclude_user_id]);
+      await query(
+        `DELETE FROM company_invitations WHERE company_id = ? AND invited_user = (SELECT email FROM users WHERE id = ?)`,
+        [company_id, exclude_user_id],
+      );
+      await query(
+        `DELETE FROM config_users_roles WHERE user_id = ? AND role_id IN (SELECT id FROM config_company_roles WHERE company_id = ?)`,
+        [exclude_user_id, company_id],
+      );
     });
+    this.returnCompanyUsers(company_id, true).catch(() => {});
+    _usersService.returnUserCompanies(exclude_user_id, true).catch(() => {});
+  },
+  findUserByToken: async function (token, user_email) {
+    const email = await this.checkTokenValidity(token, user_email);
+    const results = await _usersService.checkIfUserExists(email);
+    return !!results.exist;
   },
   createService: function (
     company_id,
@@ -1268,6 +931,9 @@ let companiesService = {
   setPreferences: function (company_id, preferences) {
     return new Promise(async (resolve, reject) => {
       try {
+        if (!Array.isArray(preferences) || preferences.some((p) => !p || typeof p.code !== "string")) {
+          return reject("Preferências inválidas");
+        }
         for (let i = 0; i < preferences.length; i++) {
           let currentPreference = preferences[i];
           
@@ -1288,146 +954,71 @@ let companiesService = {
       }
     });
   },
-  deleteCompany: function (user_id, company_id) {
-    return new Promise(async (resolve, reject) => {
-      try {
-        const checkAdmin = await functions.executeSql(
-          `SELECT r.name 
-                     FROM config_users_roles ur 
-                     INNER JOIN config_company_roles r ON ur.role_id = r.id 
-                     WHERE ur.user_id = ? AND r.company_id = ?`,
-          [user_id, company_id],
-        );
-
-        if (
-          checkAdmin.length === 0 ||
-          (checkAdmin[0].name !== "Administrador" &&
-            checkAdmin[0].name !== "Gerente")
-        ) {
-          return reject(
-            "Acesso negado. Apenas o Administrador pode excluir a empresa.",
-          );
-        }
-
-        await functions.executeSql(
+  deleteCompany: async function (user_id, company_id) {
+    // Permissão pelo id do cargo (permission = 1), não pelo nome; tudo em uma transação.
+    const checkAdmin = await functions.executeSql(
+      `SELECT r.id FROM config_users_roles ur
+         INNER JOIN config_company_roles r ON ur.role_id = r.id
+         INNER JOIN company_members cm ON cm.user_id = ur.user_id AND cm.company_id = r.company_id
+       WHERE ur.user_id = ? AND r.company_id = ? AND r.permission = 1`,
+      [user_id, company_id],
+    );
+    if (checkAdmin.length === 0) {
+      throw "Acesso negado. Apenas o Administrador pode excluir a empresa.";
+    }
+    try {
+      await functions.executeTransaction(async (query) => {
+        const steps = [
           `DELETE FROM appointment_services WHERE appointment_id IN (SELECT id FROM appointments WHERE company_id = ?)`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM sales_products WHERE sale_id IN (SELECT id FROM sales WHERE company_id = ?)`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM payments WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM accounts_receivable WHERE customer_id IN (SELECT id FROM customers WHERE company_id = ?)`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM stock_movements WHERE product_id IN (SELECT id FROM products WHERE company_id = ?)`,
-          [company_id],
-        );
-
-        await functions.executeSql(`DELETE FROM sales WHERE company_id = ?`, [
-          company_id,
-        ]);
-        await functions.executeSql(
+          `DELETE FROM sales WHERE company_id = ?`,
           `DELETE FROM appointments WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM products WHERE company_id = ?`,
-          [company_id],
-        );
-
-        await functions.executeSql(
           `DELETE FROM services WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
+          `DELETE FROM consents WHERE company_id = ?`,
           `DELETE FROM customers WHERE company_id = ?`,
-          [company_id],
-        );
-
-        await functions.executeSql(
           `DELETE FROM company_invitations WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM company_members WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM config_companies_preferences WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM config_companies_schedule WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM config_users_roles WHERE role_id IN (SELECT id FROM config_company_roles WHERE company_id = ?)`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM config_company_roles WHERE company_id = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM config_notifications WHERE company = ?`,
-          [company_id],
-        );
-        await functions.executeSql(
           `DELETE FROM config_opening_hours WHERE company = ?`,
-          [company_id],
-        );
-
-        await functions.executeSql(`DELETE FROM companies WHERE id = ?`, [
-          company_id,
-        ]);
-
-        resolve();
-      } catch (error) {
-        console.error("[Erro ao excluir empresa]:", error);
-        reject(
-          "Não foi possível excluir a empresa devido a um bloqueio no banco de dados.",
-        );
-      }
-    });
+          `DELETE FROM companies WHERE id = ?`,
+        ];
+        for (const sql of steps) await query(sql, [company_id]);
+      });
+    } catch (error) {
+      console.error("[Erro ao excluir empresa]", error?.code || "erro");
+      throw "Não foi possível excluir a empresa devido a um bloqueio no banco de dados.";
+    }
   },
   checkAsaasStatus: async function (company_id) {
     const companyData = await functions.executeSql(
-      `SELECT asaas_api_key, asaas_status FROM companies WHERE id = ?`,
+      `SELECT asaas_api_key, asaas_status, asaas_wallet_id, document FROM companies WHERE id = ?`,
       [company_id],
     );
     if (!companyData[0]) throw new Error('Empresa não encontrada.');
     if (!companyData[0].asaas_api_key) return { status: 'UNCONFIGURED', onboardingUrl: null };
 
-    const asaasData = await _asaasService.getAccountStatus(
-      companyData[0].asaas_api_key,
-    );
-
-    console.log(asaasData);
-
+    const asaasData = await _asaasService.getAccountStatus(decryptKey(companyData[0].asaas_api_key));
     const newStatus = asaasData.status || "PENDING";
 
     if (newStatus !== companyData[0].asaas_status) {
+      await functions.executeSql(`UPDATE companies SET asaas_status = ? WHERE id = ?`, [newStatus, company_id]);
+      // A chave cifrada muda a cada gravação (IV aleatório): casa pela carteira/documento.
       await functions.executeSql(
-        `UPDATE companies SET asaas_status = ? WHERE id = ?`,
-        [newStatus, company_id],
-      );
-
-      await functions.executeSql(
-        `UPDATE asaas_wallets SET asaas_status = ? WHERE asaas_api_key = ?`,
-        [newStatus, companyData[0].asaas_api_key],
+        `UPDATE asaas_wallets SET asaas_status = ? WHERE asaas_wallet_id = ? OR document = ?`,
+        [newStatus, companyData[0].asaas_wallet_id, companyData[0].document],
       );
     }
 
-    asaasData.status = newStatus;
-
-    return asaasData;
+    // Só campos de status vão para o cliente.
+    return { status: newStatus, onboardingUrl: asaasData.onboardingUrl || null };
   },
 };
 
