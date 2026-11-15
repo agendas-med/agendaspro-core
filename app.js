@@ -50,6 +50,9 @@ app.get('/public/uploads/:file', (req, res, next) => {
 });
 app.use('/public', require('./routes/public'));
 
+// F4: webhook da WhatsApp Cloud API (Meta). Corpo bruto para validar X-Hub-Signature-256.
+app.use('/webhook/meta', require('./routes/whatsappWebhook'));
+
 // CORS por allowlist (CORS_ORIGINS, separado por vírgula; URL_SITE como fallback).
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.URL_SITE || '')
     .split(',').map((o) => o.trim().replace(/\/$/, '')).filter(Boolean);
@@ -92,6 +95,7 @@ app.use("/professionals", require('./routes/professionals'));
 app.use("/availability-rules", require('./routes/availabilityRules'));
 app.use("/time-blocks", require('./routes/timeBlocks'));
 app.use("/public-page", require('./routes/publicPage'));
+app.use("/whatsapp", require('./routes/whatsapp'));
 app.get('/health/deep', require('./middleware/requireToken')('ADMIN_TOKEN'), internalRoute.deepHealth);
 
 // Arquivos estáticos em /static. O prefixo /public é da API pública (F3).

@@ -33,5 +33,15 @@ async function deepHealth(req, res) {
 
 router.get('/health/deep', requireToken('ADMIN_TOKEN'), deepHealth);
 
+// F4: atualiza o status de aprovação dos modelos WhatsApp a partir da Meta.
+router.post('/whatsapp/templates/sync', requireToken('ADMIN_TOKEN'), async (req, res) => {
+    try {
+        return res.status(200).send({ ok: true, ...(await require('../services/whatsapp/inbox').syncTemplates()) });
+    } catch (error) {
+        if (error?.providerCode) return res.status(502).send({ ok: false, code: error.providerCode });
+        return sendError(req, res, error);
+    }
+});
+
 module.exports = router;
 module.exports.deepHealth = deepHealth;
