@@ -51,7 +51,7 @@ function fold(text) {
 
 const RULES = [
   // Ignorar/sobrescrever instruções (pt, en, es, fr, de, it).
-  { id: 'override', weight: 1, re: /\b(ignor\w*|desconsider\w*|esquec\w*|esqueca|disregard|forget|override|bypass|burl\w*|olvid\w*|oubli\w*|vergiss\w*|ignorier\w*|dimentic\w*|salte|pule)\b.{0,50}\b(instruc\w*|instruction\w*|regra\w*|rules?|prompt\w*|diretriz\w*|guideline\w*|orientac\w*|reglas?|consignes?|anweisung\w*|regeln|istruzion\w*|restric\w*|restriction\w*|politica\w*|polic(y|ies)|filtro\w*|filters?|system|sistema)\b/ },
+  { id: 'override', weight: 1, re: /\b(ignor\w*|desconsider\w*|esquec(a|am|er|e)|disregard|forget|override|bypass|burl\w*|olvid\w*|oubli\w*|vergiss\w*|ignorier\w*|dimentic\w*|salte|pule)\b.{0,50}\b(instruc\w*|instruction\w*|regra\w*|rules?|prompt\w*|diretriz\w*|guideline\w*|orientac\w*|reglas?|consignes?|anweisung\w*|regeln|istruzion\w*|restric\w*|restriction\w*|politica\w*|polic(y|ies)|filtro\w*|filters?|system|sistema)\b/ },
   { id: 'override', weight: 1, re: /\b(ignore|ignora|desconsidere|esqueca|forget|disregard|olvida|oublie)\b.{0,20}\b(tudo|everything|todo|tout|all)\b.{0,30}\b(acima|antes|above|before|anterior\w*|previous|dito|said|told)\b/ },
   { id: 'override', weight: 1, re: /\b(novas?|new|nuevas?|nouvelles?) (instruc\w*|instructions?|regras|rules|reglas|consignes)\b\s*:/ },
   // Troca de papel / jailbreak.
@@ -76,8 +76,18 @@ const RULES = [
   { id: 'data_exfiltration', weight: 1, re: /\b(dados|telefones?|celulares?|e-?mails?|enderecos?|cpfs?|lista|nomes|agenda|historico|contatos?|phone numbers?|emails?|addresses|data|records?)\b.{0,30}\b(de outr[oa]s|dos outros|das outras|de todos|de todas|todos os clientes|other (users|customers|clients|companies)|all (users|customers|clients)|outras (clinicas|empresas)|outros (clientes|usuarios|pacientes))\b/ },
   { id: 'secret_request', weight: 0.5, re: /\b(qual|quais|mostre|me (de|da|passe|envie|mande)|revele|informe|liste|show|give|tell|what is|reveal|list|send)\b.{0,30}\b(api[ _-]?key|chave (da |de )?api|openai|senha|password|token|secret|segredo|credenc\w*|variave\w* de ambiente|env vars?|\.env)\b/ },
   // Pedido explícito de decodificar/seguir conteúdo codificado.
-  { id: 'encoding', weight: 1, re: /\b(base ?64|rot ?13|hex(adecimal)?|binario|binary|unicode escape|cifra de cesar|caesar)\b.{0,40}\b(decod\w*|decif\w*|traduz\w*|translate|siga|follow|execute|obede\w*|interpret\w*|leia|read)\b/ },
-  { id: 'encoding', weight: 1, re: /\b(decod\w*|decif\w*|decode|translate)\b.{0,30}\b(base ?64|rot ?13|hex|binario|binary)\b/ },
+  // (rot13 aparece como "rotie" depois do fold de leetspeak.)
+  { id: 'encoding', weight: 1, re: /\b(base ?64|rot ?(13|ie)|hex(adecimal)?|binario|binary|unicode escape|cifra de cesar|caesar)\b.{0,40}\b(decod\w*|decif\w*|traduz\w*|translate|siga|follow|execute|obede\w*|interpret\w*|leia|read)\b/ },
+  { id: 'encoding', weight: 1, re: /\b(decod\w*|decif\w*|decode|translate)\b.{0,30}\b(base ?64|rot ?(13|ie)|hex|binario|binary)\b/ },
+];
+
+// Texto soletrado ("i g n o r e p r e v i o u s") vira uma palavra só no fold; para esse caso
+// varremos o texto sem separadores com regras sem \b.
+const SPACED = /(?:\b[a-z][\s._\-*]){5,}[a-z]\b/;
+const SQUASHED_RULES = [
+  { id: 'override', weight: 1, re: /(ignor|desconsider|esquec[ae]|disregard|forget|olvid|oubli|vergiss)[a-z]{0,40}(instruc|instruction|regra|rule|prompt|regla|consigne|anweisung|diretriz|guideline)/ },
+  { id: 'prompt_extraction', weight: 1, re: /(systemprompt|promptdosistema|seuprompt|yourprompt|suasinstrucoes|yourinstructions|revealprompt|mostreprompt)/ },
+  { id: 'roleplay', weight: 1, re: /(youarenow|developermode|modedesenvolvedor|mododdesenvolvedor|doanythingnow|jailbreak|semrestric|norestriction)/ },
 ];
 
 const B64 = /[A-Za-z0-9+/_-]{24,}={0,2}/g;
@@ -111,6 +121,13 @@ function detectInjection(text) {
   const raw = String(text ?? '');
   const { score: s1, reasons } = scan(fold(raw));
   let score = s1;
+  const lower = raw.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  if (SPACED.test(lower)) {
+    const squashed = fold(raw).replace(/[^a-z]/g, '');
+    for (const rule of SQUASHED_RULES) {
+      if (rule.re.test(squashed) && !reasons.has(rule.id)) { reasons.add(rule.id); score += rule.weight; }
+    }
+  }
   // Conteúdo codificado: decodifica e reavalia; achado dentro de base64 conta como injeção.
   for (const decoded of decodeCandidates(raw)) {
     const inner = scan(fold(decoded));
