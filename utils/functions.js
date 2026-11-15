@@ -224,23 +224,10 @@ let functions = {
             })
         })
     },
+    // Identificadores escapados com ?? (nunca interpolados).
     returnColumn: function (table, value, targetColumn, referenceColumn = "id") {
-        return new Promise((resolve, reject) => {
-            functions.executeSql(
-                `
-                    SELECT
-                        ${targetColumn}
-                    FROM
-                        ${table}
-                    WHERE
-                        ${referenceColumn} = ?
-                `, [value]
-            ).then((results) => {
-                resolve(results[0][targetColumn]);
-            }).catch((error) => {
-                reject(error);
-            })
-        })
+        return functions.executeSql("SELECT ?? FROM ?? WHERE ?? = ? LIMIT 1", [targetColumn, table, referenceColumn, value])
+            .then((results) => results[0] ? results[0][targetColumn] : undefined);
     }
 }
 

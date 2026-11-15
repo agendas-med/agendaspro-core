@@ -5,9 +5,10 @@ const validate = require('../middleware/validate');
 const sales = require('../services/salesService');
 const payments = require('../services/paymentsService');
 const functions = require('../utils/functions');
+const { sendError } = require('../middleware/errorHandler');
 const handle = fn => async (req, res) => {
   try { await fn(req, res); }
-  catch (error) { res.status(400).send(error.response?.data?.errors?.[0]?.description || error.message || String(error)); }
+  catch (error) { sendError(req, res, error, 400, { text: true }); }
 };
 router.use(login, validate.validateCompanyAccess);
 router.get('/', handle(async (req, res) => {

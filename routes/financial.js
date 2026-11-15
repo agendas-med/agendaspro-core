@@ -3,6 +3,7 @@ const router = express.Router();
 const login = require("../middleware/login");
 const _financialService = require("../services/financialService");
 const functions = require("../utils/functions");
+const { sendError } = require('../middleware/errorHandler');
 const validate = require("../middleware/validate");
 
 router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
@@ -10,7 +11,7 @@ router.get("/", login, validate.validateCompanyAccess, (req, res, next) => {
         let response = functions.createResponse("Retorno do financeiro", results, "GET", 200);
         return res.status(200).send(response);
     }).catch((error) => {
-        return res.status(500).send(error);
+        return sendError(req, res, error, 500);
     })
 });
 

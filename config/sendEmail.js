@@ -10,7 +10,7 @@ let sendEmail = {
                 from: from,
                 to: [to]
             }).then(message => {
-                console.log(message);
+                console.log('[email] enviado');
                 resolve(true);
             }).catch(err => {
                 reject(err);
