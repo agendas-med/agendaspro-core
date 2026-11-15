@@ -139,6 +139,12 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
       assert.equal((await A.as('GET', '/appointments?start=2027-03-10&end=2027-03-10')).returnObj.length, 1);
       assert.equal((await A.as('GET', '/appointments?start=2027-03-11&end=2027-03-31')).returnObj.length, 0);
       assert.equal((await A.as('GET', '/appointments?start=2027-03-10%2009:00&end=2027-03-10%2009:59')).returnObj.length, 0);
+      // Formato exato do FullCalendar (timeZone America/Sao_Paulo): hora de parede + offset; end exclusivo.
+      const fc = (start, end) => `/appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+      assert.equal((await A.as('GET', fc('2027-03-07T00:00:00-03:00', '2027-03-14T00:00:00-03:00'))).returnObj.length, 1);
+      assert.equal((await A.as('GET', fc('2027-03-10T10:30:00-03:00', '2027-03-11T00:00:00-03:00'))).returnObj.length, 0);
+      assert.equal((await A.as('GET', fc('2027-03-10T09:00:00.000-03:00', '2027-03-10T10:00:00.000-03:00'))).returnObj.length, 0, 'end exclusivo');
+      assert.equal((await A.as('GET', fc('2027-03-10T12:59:00.000Z', '2027-03-10T13:01:00.000Z'))).returnObj.length, 1, 'Z convertido para o fuso da empresa');
       assert.equal((await B.as('GET', '/appointments?start=2027-01-01&end=2027-12-31')).returnObj.length, 0);
       await A.as('GET', `/appointments?start=${encodeURIComponent("2027-01-01' OR '1'='1")}`, undefined, 400);
     });
@@ -370,8 +376,26 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
     });
 
     await t.test('erros internos não vazam SQL e trazem correlation_id', async () => {
-      const result = await call('GET', '/appointments?start=2027-02-30', { auth: A.token, company: A.companyId });
-      assert.ok([200, 400].includes(result.status));
+      await A.as('GET', '/appointments?start=2027-02-30', undefined, 400);
+      const original = functions.executeSql;
+      functions.executeSql = async (query, ...rest) => {
+        if (/FROM\s+customers/i.test(query) && !/password_changed_at/.test(query)) {
+          throw Object.assign(new Error("ER_PARSE_ERROR: You have an error near 'SELECT * FROM customers'"), { code: 'ER_PARSE_ERROR', sql: query });
+        }
+        return original.call(functions, query, ...rest);
+      };
+      const { error } = console;
+      console.error = () => {};
+      let failed;
+      try {
+        failed = await call('GET', '/customers', { auth: A.token, company: A.companyId });
+      } finally {
+        functions.executeSql = original;
+        console.error = error;
+      }
+      assert.equal(failed.status, 500, failed.raw);
+      assert.match(failed.raw, /[a-f0-9]{16}/, 'correlation id');
+      assert.ok(!/ER_PARSE_ERROR|SELECT|customers/i.test(failed.raw), failed.raw);
       const tooBig = await call('POST', '/users/login', { body: { email: 'x@example.test', password: 'a'.repeat(2 * 1024 * 1024) } });
       assert.equal(tooBig.status, 413);
     });

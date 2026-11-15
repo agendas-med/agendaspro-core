@@ -23,14 +23,29 @@ async function saveServices(query, id, services) {
   await query('DELETE FROM appointment_services WHERE appointment_id = ?', [id]);
   if (services.length) await query('INSERT INTO appointment_services (service_id, appointment_id, quantity) VALUES ?', [services.map(service => [service.id, id, service.quantity || 1])]);
 }
+// Datas do banco são "hora de parede" do fuso da empresa (APP_TIMEZONE, padrão America/Sao_Paulo).
+// Aceita YYYY-MM-DD, YYYY-MM-DD[ T]HH:mm[:ss[.sss]] e ISO com offset (FullCalendar envia
+// "2027-03-01T00:00:00-03:00": a hora de parede já é a da empresa e o offset é descartado).
+// Sufixo Z (UTC) é convertido para o fuso da empresa.
+const RANGE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,6})?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+function wallClock(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.APP_TIMEZONE || 'America/Sao_Paulo', hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
+}
 function parseRangeDate(value) {
-  const text = String(value);
-  if (!/^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/.test(text) || Number.isNaN(Date.parse(text.slice(0, 10)))) {
-    const error = new Error('Intervalo de datas inválido (use YYYY-MM-DD).');
-    error.status = 400;
-    throw error;
-  }
-  return text.replace('T', ' ');
+  const match = RANGE_RE.exec(String(value));
+  const invalid = () => Object.assign(new Error('Intervalo de datas inválido (use YYYY-MM-DD ou ISO 8601).'), { status: 400 });
+  if (!match) throw invalid();
+  const [, y, m, d, hh, mi, ss, zone] = match;
+  const day = new Date(Date.UTC(+y, +m - 1, +d));
+  if (day.getUTCFullYear() !== +y || day.getUTCMonth() !== +m - 1 || day.getUTCDate() !== +d) throw invalid();
+  if (hh === undefined) return { value: `${y}-${m}-${d}`, dateOnly: true };
+  if (+hh > 23 || +mi > 59 || +(ss || 0) > 59) throw invalid();
+  if (zone === 'Z') return { value: wallClock(new Date(String(value))), dateOnly: false };
+  return { value: `${y}-${m}-${d} ${hh}:${mi}:${ss || '00'}`, dateOnly: false };
 }
 async function ensureSlot(query, companyId, date, duration, excludedId = 0) {
   // Serializa reservas concorrentes da mesma empresa.
@@ -121,9 +136,10 @@ const appointmentsService = {
     const params = [companyId];
     if (targetDate === true || targetDate === 'true') sql += ' AND DATE(a.date) = CURDATE()';
     else if (targetDate && targetDate !== 'false') { sql += ' AND DATE(a.date) = ?'; params.push(targetDate); }
-    // Intervalo ?start=&end= (datas YYYY-MM-DD inclusivas ou datetime); sempre dentro da empresa.
-    if (range.start) { sql += ' AND a.date >= ?'; params.push(parseRangeDate(range.start)); }
-    if (range.end) { const end = parseRangeDate(range.end); sql += end.length === 10 ? ' AND a.date < DATE_ADD(?, INTERVAL 1 DAY)' : ' AND a.date <= ?'; params.push(end); }
+    // Intervalo ?start=&end=, sempre dentro da empresa. Data pura: end inclusivo (dia inteiro).
+    // Data e hora: end exclusivo, como o endStr do FullCalendar.
+    if (range.start) { sql += ' AND a.date >= ?'; params.push(parseRangeDate(range.start).value); }
+    if (range.end) { const end = parseRangeDate(range.end); sql += end.dateOnly ? ' AND a.date < DATE_ADD(?, INTERVAL 1 DAY)' : ' AND a.date < ?'; params.push(end.value); }
     sql += " ORDER BY FIELD(a.status, 'iniciado', 'pendente_pagamento', 'agendado', 'realizado', 'cancelado'), a.date";
     const appointments = await functions.executeSql(sql, params);
     return Promise.all(appointments.map(appointment => this.decorate(appointment)));

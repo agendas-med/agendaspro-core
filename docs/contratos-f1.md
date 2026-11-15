@@ -29,8 +29,9 @@ Erros internos (SQL, provedores externos, bugs) devolvem `500 { message: "Erro i
 
 ## Agendamentos
 
-`GET /appointments?start=YYYY-MM-DD&end=YYYY-MM-DD`:
-- As datas são inclusivas. Também aceita `YYYY-MM-DD HH:mm[:ss]`.
+`GET /appointments?start=&end=`:
+- Data pura (`YYYY-MM-DD`): `end` é inclusivo (o dia inteiro).
+- Data e hora (`YYYY-MM-DD HH:mm[:ss]` ou ISO do FullCalendar, ex.: `2027-03-07T00:00:00-03:00`): `end` é exclusivo. Com offset, vale a hora local informada; com `Z`, a hora é convertida para `APP_TIMEZONE` (padrão `America/Sao_Paulo`).
 - Pode ser combinado com `?today=`.
 - Uma data inválida devolve `400`.
 - O resultado é sempre filtrado pela empresa selecionada.
