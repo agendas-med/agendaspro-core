@@ -60,6 +60,26 @@ test('dica proativa é determinística', () => {
   assert.equal(chat.proactiveHint({ audience: 'customer', session, intent: 'manage', turn: 1 }), null);
 });
 
+test('dica proativa: url só da allowlist', () => {
+  const prev = { site: process.env.PUBLIC_SITE_URL, app: process.env.URL_SITE };
+  process.env.PUBLIC_SITE_URL = 'https://site.example.test';
+  process.env.URL_SITE = 'https://app.example.test';
+  try {
+    const session = { lead_captured_at: null };
+    const signup = chat.proactiveHint({ audience: 'business', session, intent: 'plans', turn: 1, data: { signup_url: 'https://app.example.test/registro' } });
+    assert.equal(signup.url, 'https://app.example.test/registro');
+    assert.equal(chat.proactiveHint({ audience: 'business', session, intent: 'plans', turn: 1, data: { signup_url: 'https://evil.example.com/x' } }).url, undefined);
+    assert.equal(chat.proactiveHint({ audience: 'business', session, intent: 'plans', turn: 1, data: { signup_url: 'javascript:alert(1)' } }).url, undefined);
+    assert.equal(chat.proactiveHint({ audience: 'business', session, intent: 'features', turn: 3 }).url, undefined);
+    const biz = { company: { name: 'Clínica', slug: 'clinica' } };
+    assert.equal(chat.proactiveHint({ audience: 'customer', session, biz, intent: 'manage', turn: 1 }).url, 'https://site.example.test/b/clinica');
+    delete process.env.PUBLIC_SITE_URL;
+    assert.equal(chat.proactiveHint({ audience: 'customer', session, biz, intent: 'manage', turn: 1 }).url, undefined, 'url relativa não sai');
+  } finally {
+    for (const [k, v] of [['PUBLIC_SITE_URL', prev.site], ['URL_SITE', prev.app]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+});
+
 test('resumo acumula assuntos e ignora social', () => {
   assert.equal(chat.nextSummary(null, 'greeting'), null);
   const s1 = chat.nextSummary(null, 'plans');

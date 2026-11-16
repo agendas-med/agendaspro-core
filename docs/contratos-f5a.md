@@ -66,6 +66,9 @@ Corpo `{ message (1..max_chars), client_msg_id? (^[A-Za-z0-9_-]{8,64}$) }`.
 
 `proactive_hint` (regra fixa): `{type, text, action}` — `signup` após pergunta de planos;
 `lead_form` a partir da 3ª mensagem (empresa, sem lead); `booking_link` no chat de uma página `/b/{slug}`.
+Desde o follow-up 1 há também `url?` (aditivo): `signup` traz o link de cadastro e `booking_link` a página
+de agendamento, só quando a URL é absoluta e o host está na allowlist do chat (`PUBLIC_SITE_URL`, `URL_SITE`,
+`PUBLIC_CHAT_ALLOWED_DOMAINS`). `lead_form` nunca tem url (use `action`). Sem `url`, o cliente segue usando `action`.
 
 **Garantias**: a IA nunca agenda, cancela, cobra nem grava dados; a reserva acontece só pela página
 `/b/{slug}` (contratos F3). Preços/comissões vêm da tabela `plans`, nunca escritos à mão.

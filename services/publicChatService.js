@@ -402,14 +402,23 @@ async function buildActions(actionName, ctx) {
   return { actions, reply, suggestions };
 }
 
-// Dica proativa por regra fixa (nunca pela IA).
-function proactiveHint({ audience, session, biz, intent, turn }) {
+// URL de dica só se for https/http absoluta e o host estiver na allowlist do chat.
+function safeUrl(url) {
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  const host = hostOf(url);
+  return host && allowedDomains().includes(host) ? url : null;
+}
+const withUrl = (hint, url) => { const safe = safeUrl(url); return safe ? { ...hint, url: safe } : hint; };
+
+// Dica proativa por regra fixa (nunca pela IA). `url` (opcional) vem só de fonte fixa do servidor
+// (signup_url, página de agendamento) e passa pela allowlist; lead_form não tem url.
+function proactiveHint({ audience, session, biz, intent, turn, data }) {
   if (audience === 'business') {
-    if (intent === 'plans') return { type: 'signup', text: 'Quer testar? O plano Free não tem mensalidade.', action: 'signup' };
+    if (intent === 'plans') return withUrl({ type: 'signup', text: 'Quer testar? O plano Free não tem mensalidade.', action: 'signup' }, data?.signup_url);
     if (turn >= 3 && !session.lead_captured_at) return { type: 'lead_form', text: 'Quer que nossa equipe fale com você? Deixe seu WhatsApp.', action: 'lead_form' };
     return null;
   }
-  if (biz && !['booking', 'availability'].includes(intent)) return { type: 'booking_link', text: `Quer agendar em ${guard.oneLine(biz.company.name, 40)}?`, action: 'booking_link' };
+  if (biz && !['booking', 'availability'].includes(intent)) return withUrl({ type: 'booking_link', text: `Quer agendar em ${guard.oneLine(biz.company.name, 40)}?`, action: 'booking_link' }, bookingUrl(biz.company.slug));
   return null;
 }
 
@@ -630,7 +639,7 @@ async function sendMessage(session, body, { ip, now = Date.now() } = {}) {
   if (out.extraAction) built.actions.push(...(await buildActions(out.extraAction, ctx)).actions);
   const reply = (out.source === 'faq' || out.source === 'fallback') && built.reply ? built.reply : out.reply;
   const turn = Number(session.message_count);
-  const hint = proactiveHint({ audience: session.audience, session, biz, intent: out.intent, turn });
+  const hint = proactiveHint({ audience: session.audience, session, biz, intent: out.intent, turn, data });
 
   const payload = {
     reply,
