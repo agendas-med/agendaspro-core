@@ -1,5 +1,5 @@
 -- Aplicar ao banco selecionado na conexão. Para bancos existentes, use npm run db:migrate.
--- Snapshot gerado das migrations 001-018 (fonte da verdade: sql/migrations). Sem dados nem schema_migrations.
+-- Snapshot gerado das migrations 001-020 (fonte da verdade: sql/migrations). Sem dados nem schema_migrations.
 -- MariaDB dump 10.19-11.4.13-MariaDB, for debian-linux-gnu (x86_64)
 --
 -- Host: localhost    Database: agendaspro_db
@@ -415,6 +415,28 @@ CREATE TABLE `availability_rules` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `booking_attributions`
+--
+
+DROP TABLE IF EXISTS `booking_attributions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `booking_attributions` (
+  `appointment_id` int(11) NOT NULL,
+  `company_id` int(11) NOT NULL,
+  `utm_source` varchar(40) NOT NULL DEFAULT '',
+  `utm_medium` varchar(40) NOT NULL DEFAULT '',
+  `utm_campaign` varchar(80) NOT NULL DEFAULT '',
+  `utm_content` varchar(80) NOT NULL DEFAULT '',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`appointment_id`),
+  KEY `idx_booking_attributions_company` (`company_id`,`utm_source`,`created_at`),
+  CONSTRAINT `fk_booking_attributions_appointment` FOREIGN KEY (`appointment_id`) REFERENCES `appointments` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_booking_attributions_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `business_types`
 --
 
@@ -778,6 +800,90 @@ CREATE TABLE `customers` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `google_calendar_accounts`
+--
+
+DROP TABLE IF EXISTS `google_calendar_accounts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `google_calendar_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `company_id` int(11) NOT NULL,
+  `account_email` varchar(255) DEFAULT NULL,
+  `refresh_token_enc` text DEFAULT NULL,
+  `access_token_enc` text DEFAULT NULL,
+  `access_expires_at` datetime DEFAULT NULL,
+  `scopes` varchar(500) DEFAULT NULL,
+  `status` enum('active','reauth_required') NOT NULL DEFAULT 'active',
+  `last_error_code` varchar(60) DEFAULT NULL,
+  `connected_by_user_id` int(11) DEFAULT NULL,
+  `connected_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `last_push_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_gcal_accounts_company` (`company_id`),
+  CONSTRAINT `fk_gcal_accounts_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `google_calendar_events`
+--
+
+DROP TABLE IF EXISTS `google_calendar_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `google_calendar_events` (
+  `company_id` int(11) NOT NULL,
+  `appointment_id` int(11) NOT NULL,
+  `link_id` int(11) DEFAULT NULL,
+  `calendar_id` varchar(190) NOT NULL,
+  `event_id` varchar(64) NOT NULL,
+  `content_hash` char(64) DEFAULT NULL,
+  `status` enum('synced','deleted') NOT NULL DEFAULT 'synced',
+  `synced_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`company_id`,`appointment_id`),
+  KEY `idx_gcal_events_event` (`event_id`),
+  CONSTRAINT `fk_gcal_events_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `google_calendar_links`
+--
+
+DROP TABLE IF EXISTS `google_calendar_links`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `google_calendar_links` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `company_id` int(11) NOT NULL,
+  `account_id` int(11) NOT NULL,
+  `role` enum('push','busy') NOT NULL,
+  `professional_id` int(11) DEFAULT NULL,
+  `pro_key` int(11) GENERATED ALWAYS AS (coalesce(`professional_id`,0)) STORED,
+  `calendar_id` varchar(190) NOT NULL,
+  `calendar_summary` varchar(255) DEFAULT NULL,
+  `created_by_app` tinyint(1) NOT NULL DEFAULT 0,
+  `sync_token` text DEFAULT NULL,
+  `last_sync_at` datetime DEFAULT NULL,
+  `last_full_sync_at` datetime DEFAULT NULL,
+  `channel_id` varchar(64) DEFAULT NULL,
+  `channel_token_hash` char(64) DEFAULT NULL,
+  `channel_resource_id` varchar(255) DEFAULT NULL,
+  `channel_expires_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_gcal_links` (`company_id`,`role`,`pro_key`,`calendar_id`),
+  UNIQUE KEY `uq_gcal_links_channel` (`channel_id`),
+  KEY `idx_gcal_links_account` (`account_id`),
+  KEY `fk_gcal_links_professional` (`professional_id`),
+  CONSTRAINT `fk_gcal_links_account` FOREIGN KEY (`account_id`) REFERENCES `google_calendar_accounts` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_gcal_links_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_gcal_links_professional` FOREIGN KEY (`professional_id`) REFERENCES `professionals` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `inbound_events`
 --
 
@@ -798,6 +904,121 @@ CREATE TABLE `inbound_events` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_inbound_events_external` (`provider`,`external_id`),
   KEY `idx_inbound_events_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `instagram_accounts`
+--
+
+DROP TABLE IF EXISTS `instagram_accounts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `instagram_accounts` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `company_id` int(11) NOT NULL,
+  `ig_user_id` varchar(64) NOT NULL,
+  `app_user_id` varchar(64) DEFAULT NULL,
+  `username` varchar(100) DEFAULT NULL,
+  `name` varchar(150) DEFAULT NULL,
+  `account_type` varchar(30) DEFAULT NULL,
+  `profile_picture_url` varchar(1000) DEFAULT NULL,
+  `followers_count` int(11) DEFAULT NULL,
+  `follows_count` int(11) DEFAULT NULL,
+  `media_count` int(11) DEFAULT NULL,
+  `access_token_enc` text DEFAULT NULL,
+  `token_expires_at` datetime DEFAULT NULL,
+  `token_refreshed_at` datetime DEFAULT NULL,
+  `scopes` varchar(500) DEFAULT NULL,
+  `status` enum('active','reauth_required') NOT NULL DEFAULT 'active',
+  `last_error_code` varchar(60) DEFAULT NULL,
+  `rate_limited_until` datetime DEFAULT NULL,
+  `connected_by_user_id` int(11) DEFAULT NULL,
+  `connected_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `profile_synced_at` datetime DEFAULT NULL,
+  `media_synced_at` datetime DEFAULT NULL,
+  `insights_synced_at` datetime DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_instagram_accounts_company` (`company_id`),
+  KEY `idx_instagram_accounts_ig_user` (`ig_user_id`),
+  KEY `idx_instagram_accounts_app_user` (`app_user_id`),
+  KEY `idx_instagram_accounts_token` (`status`,`token_expires_at`),
+  CONSTRAINT `fk_instagram_accounts_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `instagram_deletion_requests`
+--
+
+DROP TABLE IF EXISTS `instagram_deletion_requests`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `instagram_deletion_requests` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `confirmation_code` char(22) NOT NULL,
+  `user_hash` char(64) NOT NULL,
+  `kind` enum('deletion','deauthorize') NOT NULL,
+  `accounts_removed` int(11) NOT NULL DEFAULT 0,
+  `status` enum('completed') NOT NULL DEFAULT 'completed',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_instagram_deletion_code` (`confirmation_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `instagram_media`
+--
+
+DROP TABLE IF EXISTS `instagram_media`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `instagram_media` (
+  `company_id` int(11) NOT NULL,
+  `media_id` varchar(64) NOT NULL,
+  `caption` varchar(2200) DEFAULT NULL,
+  `media_type` varchar(30) DEFAULT NULL,
+  `media_product_type` varchar(30) DEFAULT NULL,
+  `permalink` varchar(500) DEFAULT NULL,
+  `thumbnail_url` varchar(1000) DEFAULT NULL,
+  `posted_at` datetime DEFAULT NULL,
+  `like_count` int(11) DEFAULT NULL,
+  `comments_count` int(11) DEFAULT NULL,
+  `reach` int(11) DEFAULT NULL,
+  `views` int(11) DEFAULT NULL,
+  `saved` int(11) DEFAULT NULL,
+  `shares` int(11) DEFAULT NULL,
+  `total_interactions` int(11) DEFAULT NULL,
+  `insights_at` datetime DEFAULT NULL,
+  `fetched_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`company_id`,`media_id`),
+  KEY `idx_instagram_media_posted` (`company_id`,`posted_at`),
+  CONSTRAINT `fk_instagram_media_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `instagram_snapshots`
+--
+
+DROP TABLE IF EXISTS `instagram_snapshots`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `instagram_snapshots` (
+  `company_id` int(11) NOT NULL,
+  `snapshot_date` date NOT NULL,
+  `followers_count` int(11) DEFAULT NULL,
+  `follows_count` int(11) DEFAULT NULL,
+  `media_count` int(11) DEFAULT NULL,
+  `reach` int(11) DEFAULT NULL,
+  `views` int(11) DEFAULT NULL,
+  `accounts_engaged` int(11) DEFAULT NULL,
+  `total_interactions` int(11) DEFAULT NULL,
+  `profile_links_taps` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`company_id`,`snapshot_date`),
+  CONSTRAINT `fk_instagram_snapshots_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -848,6 +1069,55 @@ CREATE TABLE `leads` (
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_leads_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `marketing_links`
+--
+
+DROP TABLE IF EXISTS `marketing_links`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `marketing_links` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `company_id` int(11) NOT NULL,
+  `utm_source` varchar(40) NOT NULL,
+  `utm_medium` varchar(40) NOT NULL,
+  `utm_campaign` varchar(80) NOT NULL,
+  `utm_content` varchar(80) NOT NULL DEFAULT '',
+  `label` varchar(120) DEFAULT NULL,
+  `created_by_user_id` int(11) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_marketing_links` (`company_id`,`utm_source`,`utm_medium`,`utm_campaign`,`utm_content`),
+  CONSTRAINT `fk_marketing_links_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `oauth_states`
+--
+
+DROP TABLE IF EXISTS `oauth_states`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `oauth_states` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `nonce` char(43) NOT NULL,
+  `provider` varchar(30) NOT NULL,
+  `company_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `redirect_uri` varchar(500) NOT NULL,
+  `code_verifier_enc` text DEFAULT NULL,
+  `expires_at` datetime NOT NULL,
+  `used_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_oauth_states_nonce` (`nonce`),
+  KEY `idx_oauth_states_expires` (`expires_at`),
+  KEY `idx_oauth_states_company` (`company_id`),
+  CONSTRAINT `fk_oauth_states_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -1070,6 +1340,26 @@ CREATE TABLE `public_bookings` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `public_page_visits`
+--
+
+DROP TABLE IF EXISTS `public_page_visits`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `public_page_visits` (
+  `company_id` int(11) NOT NULL,
+  `visit_date` date NOT NULL,
+  `utm_source` varchar(40) NOT NULL DEFAULT '',
+  `utm_medium` varchar(40) NOT NULL DEFAULT '',
+  `utm_campaign` varchar(80) NOT NULL DEFAULT '',
+  `utm_content` varchar(80) NOT NULL DEFAULT '',
+  `visits` int(11) NOT NULL DEFAULT 0,
+  PRIMARY KEY (`company_id`,`visit_date`,`utm_source`,`utm_medium`,`utm_campaign`,`utm_content`),
+  CONSTRAINT `fk_public_page_visits_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `rate_limits`
 --
 
@@ -1281,9 +1571,14 @@ CREATE TABLE `time_blocks` (
   `ends_at` datetime NOT NULL,
   `reason` varchar(160) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  `source` varchar(20) NOT NULL DEFAULT 'manual',
+  `external_ref` varchar(255) DEFAULT NULL,
+  `link_id` int(11) DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_time_blocks_external` (`company_id`,`source`,`external_ref`),
   KEY `idx_time_blocks_company` (`company_id`,`starts_at`,`ends_at`),
   KEY `idx_time_blocks_professional` (`professional_id`),
+  KEY `idx_time_blocks_link` (`link_id`),
   CONSTRAINT `fk_time_blocks_company` FOREIGN KEY (`company_id`) REFERENCES `companies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_time_blocks_professional` FOREIGN KEY (`professional_id`) REFERENCES `professionals` (`id`) ON DELETE CASCADE,
   CONSTRAINT `chk_time_blocks` CHECK (`ends_at` > `starts_at`)
