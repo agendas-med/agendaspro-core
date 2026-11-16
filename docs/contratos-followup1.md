@@ -138,3 +138,17 @@ Migration `017_assistant_knowledge_active.sql`: coluna `assistant_knowledge.acti
 - **Novo** `PATCH /assistant/knowledge/:id` (admin): corpo parcial com qualquer subconjunto de `kind`, `title`, `content`, `active` (ao menos um campo; senão 400 `{errors:[...]}`). Resposta 200 com o item completo.
 - Inativo sai do RAG imediatamente (embeddings do item removidos) e não é reindexado pelo reconcile; `search_knowledge` não o cita. Reativar agenda a reindexação (job `assistant_rag_reconcile`, até 1 por hora por empresa).
 - Itens inativos contam para o limite de 500 itens.
+
+## A4. Reemissão segura do `confirm_token`
+
+Problema: `GET /assistant/conversations/:id` lista `pending_actions` **sem** token (F5-B, mantido); se a UI perdeu o token (recarregou a página), a ação não podia ser confirmada.
+
+**Novo** `POST /assistant/actions/:id/token` (membro; sem corpo):
+
+- Só para ação do **mesmo usuário e empresa** (senão 404 `action_not_found`, indistinguível de inexistente).
+- 200 `{ data: { action_id, tool, summary, risk, params_preview: null, expires_at, confirm_token } }` — mesmo formato da proposta; `params_preview` não é persistido e volta `null` (use `summary`).
+- **Nunca devolve o token antigo**: a migration `018_assistant_action_token_version.sql` adiciona `assistant_actions.token_version`; cada reemissão incrementa a versão de forma atômica (CAS) e o token anterior passa a responder 403 `invalid_confirm_token`. Só o token mais recente vale.
+- **Não estende** a expiração (`expires_at` igual ao da proposta).
+- Erros: 410 `action_expired`, 409 `action_already_processed` (`details.status`), 503 `assistant_actions_disabled` (sem `ASSISTANT_TOKEN_SECRET`), 404 `action_not_found`.
+- Auditoria: evento `action_token_reissued` (sem o token).
+- Compatibilidade: tokens de versão 0 (todas as propostas, como no F5-B) têm exatamente o mesmo HMAC de antes; a versão só entra no HMAC quando > 0. Confirm segue `POST /assistant/actions/:id/confirm { confirm_token }`.

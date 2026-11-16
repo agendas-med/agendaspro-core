@@ -21,9 +21,13 @@ function canonical(value) {
 }
 const hashParams = params => crypto.createHash('sha256').update(canonical(params)).digest('hex');
 
-function sign({ publicId, tool, payloadHash, userId, companyId, expiresAtMs }, secret = config().tokenSecret) {
+// Follow-up 1: `version` (token_version da linha) entra no HMAC só quando > 0, então tokens emitidos
+// antes da reemissão (versão 0) continuam idênticos ao formato do F5-B.
+function sign({ publicId, tool, payloadHash, userId, companyId, expiresAtMs, version }, secret = config().tokenSecret) {
   if (!secret) throw coded(503, 'assistant_actions_disabled', 'Ações do assistente indisponíveis no momento.');
-  const body = canonical({ a: publicId, c: Number(companyId), e: Number(expiresAtMs), h: payloadHash, t: tool, u: Number(userId) });
+  const fields = { a: publicId, c: Number(companyId), e: Number(expiresAtMs), h: payloadHash, t: tool, u: Number(userId) };
+  if (Number(version) > 0) fields.v = Number(version);
+  const body = canonical(fields);
   return crypto.createHmac('sha256', secret).update(body).digest('base64url');
 }
 function tokenMatches(received, expected) {
@@ -101,7 +105,7 @@ async function confirm(ctx, publicId, confirmToken) {
   };
   // Token amarrado a payload, usuário, empresa e expiração. Payload alterado no banco => hash diverge.
   const currentHash = hashParams(row.params);
-  const expected = sign({ publicId: row.public_id, tool: row.tool, payloadHash: currentHash, userId: ctx.userId, companyId: ctx.companyId, expiresAtMs: row.expires_at_ms });
+  const expected = sign({ publicId: row.public_id, tool: row.tool, payloadHash: currentHash, userId: ctx.userId, companyId: ctx.companyId, expiresAtMs: row.expires_at_ms, version: row.token_version });
   if (!tool || currentHash !== row.payload_hash || !tokenMatches(confirmToken, expected)) {
     return deny(coded(403, 'invalid_confirm_token', 'Confirmação inválida.'), currentHash !== row.payload_hash ? 'payload_mismatch' : 'token');
   }
@@ -122,8 +126,8 @@ async function confirm(ctx, publicId, confirmToken) {
 
   // Uso único: só um confirm consegue sair de pending (corridas/replay recebem 409).
   const claim = await functions.executeSql(
-    "UPDATE assistant_actions SET status = 'executing' WHERE id = ? AND company_id = ? AND user_id = ? AND status = 'pending' AND expires_at_ms > ?",
-    [row.id, ctx.companyId, ctx.userId, now],
+    "UPDATE assistant_actions SET status = 'executing' WHERE id = ? AND company_id = ? AND user_id = ? AND status = 'pending' AND expires_at_ms > ? AND token_version = ?",
+    [row.id, ctx.companyId, ctx.userId, now, Number(row.token_version) || 0],
   );
   if (!claim.affectedRows) return deny(coded(409, 'action_already_processed', 'Esta ação já foi processada.'), 'race');
 
@@ -142,6 +146,36 @@ async function confirm(ctx, publicId, confirmToken) {
   }
 }
 
+// Follow-up 1: reemite o confirm_token de uma ação pendente do MESMO usuário/empresa (ex.: recarregou
+// a página e perdeu o token). Nunca devolve o token antigo: incrementa token_version (o anterior deixa
+// de valer) e assina de novo. Não estende a expiração. params_preview não é persistido (volta null).
+async function reissueToken(ctx, publicId) {
+  if (!config().tokenSecret) throw coded(503, 'assistant_actions_disabled', 'Ações do assistente indisponíveis no momento.');
+  let row = await load(ctx, publicId);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const now = Date.now();
+    const stateError = statusError(row, now);
+    if (stateError) {
+      if (stateError.code === 'action_expired' && row.status === 'pending') {
+        await functions.executeSql("UPDATE assistant_actions SET status = 'expired' WHERE id = ? AND status = 'pending'", [row.id]);
+      }
+      throw stateError;
+    }
+    const version = (Number(row.token_version) || 0) + 1;
+    const bump = await functions.executeSql(
+      "UPDATE assistant_actions SET token_version = ? WHERE id = ? AND company_id = ? AND user_id = ? AND status = 'pending' AND expires_at_ms > ? AND token_version = ?",
+      [version, row.id, ctx.companyId, ctx.userId, now, Number(row.token_version) || 0],
+    );
+    if (bump.affectedRows) {
+      await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: row.conversation_id, actionId: row.id, event: 'action_token_reissued', tool: row.tool, result: 'pending' });
+      const token = sign({ publicId: row.public_id, tool: row.tool, payloadHash: row.payload_hash, userId: ctx.userId, companyId: ctx.companyId, expiresAtMs: row.expires_at_ms, version });
+      return publicView({ ...row, preview: null }, token);
+    }
+    row = await load(ctx, publicId); // corrida (outra reemissão/confirmação): reavalia
+  }
+  throw coded(409, 'action_already_processed', 'Esta ação já foi processada.', { status: row.status });
+}
+
 async function reject(ctx, publicId) {
   const row = await load(ctx, publicId);
   const result = await functions.executeSql("UPDATE assistant_actions SET status = 'rejected' WHERE id = ? AND status = 'pending'", [row.id]);
@@ -150,4 +184,4 @@ async function reject(ctx, publicId) {
   return { action_id: row.public_id, status: 'rejected' };
 }
 
-module.exports = { propose, confirm, reject, sign, hashParams, canonical, isAdmin };
+module.exports = { propose, confirm, reject, reissueToken, sign, hashParams, canonical, isAdmin };

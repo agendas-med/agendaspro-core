@@ -212,6 +212,52 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
       const inactiveNew = (await oa.expect(201, 'POST', '/assistant/knowledge', { kind: 'faq', title: 'Rascunho', content: 'Texto ainda não publicado.', active: false })).data.data;
       assert.equal(inactiveNew.active, false);
     });
+    await t.test('4: reemissão do confirm_token (POST /actions/:id/token)', async () => {
+      const customersService = require('../services/customersService');
+      await customersService.create(A, 'Cliente Token', null, null, '11900001111', null, null);
+      const custA = (await sql("SELECT id FROM customers WHERE company_id = ? AND name = 'Cliente Token'", [A]))[0].id;
+      const today = require('../services/assistant/tools')._today();
+      const conv = await newConv(oa);
+      const propose = async hour => {
+        route('create_appointment', { customer_id: custA, service_ids: [serviceA], date: `${today} ${hour}` });
+        const r = await oa.expect(200, 'POST', `/assistant/conversations/${conv}/messages`, { message: `agende a cliente token às ${hour}` });
+        route('none');
+        return r.data.data.proposed_actions[0];
+      };
+      const p = await propose('16:00');
+      const tokenUrl = `/assistant/actions/${p.action_id}/token`;
+      const confirmUrl = `/assistant/actions/${p.action_id}/confirm`;
+      const pending = (await oa.expect(200, 'GET', `/assistant/conversations/${conv}`)).data.data.pending_actions;
+      assert.equal(pending.find(a => a.action_id === p.action_id).confirm_token, undefined, 'listagem segue sem token');
+
+      const r1 = (await oa.expect(200, 'POST', tokenUrl)).data.data;
+      assert.deepEqual([r1.action_id, r1.tool, r1.expires_at, r1.params_preview], [p.action_id, p.tool, p.expires_at, null], 'não estende a expiração');
+      assert.ok(r1.confirm_token && r1.confirm_token !== p.confirm_token, 'token novo, nunca o antigo');
+      assert.equal(errCode(await ma.call('POST', tokenUrl)), 'action_not_found', 'outro usuário');
+      assert.equal(errCode(await ob.call('POST', tokenUrl)), 'action_not_found', 'outra empresa');
+      assert.equal((await oa.call('POST', '/assistant/actions/xyz/token')).status, 404);
+      assert.equal(errCode(await oa.call('POST', confirmUrl, { confirm_token: p.confirm_token })), 'invalid_confirm_token', 'token anterior invalidado');
+      const r2 = (await oa.expect(200, 'POST', tokenUrl)).data.data;
+      assert.equal(errCode(await oa.call('POST', confirmUrl, { confirm_token: r1.confirm_token })), 'invalid_confirm_token');
+      const audits = await sql("SELECT * FROM assistant_audit WHERE company_id = ? AND event = 'action_token_reissued'", [A]);
+      assert.equal(audits.length, 2);
+      assert.ok(audits.every(a => !JSON.stringify(a).includes(r2.confirm_token)), 'auditoria não guarda token');
+      assert.equal((await oa.expect(200, 'POST', confirmUrl, { confirm_token: r2.confirm_token })).data.data.status, 'executed');
+      assert.equal(errCode(await oa.call('POST', tokenUrl)), 'action_already_processed');
+
+      const p2 = await propose('17:00');
+      await sql('UPDATE assistant_actions SET expires_at_ms = ? WHERE public_id = ?', [Date.now() - 1000, p2.action_id]);
+      const expired = await oa.call('POST', `/assistant/actions/${p2.action_id}/token`);
+      assert.deepEqual([expired.status, errCode(expired)], [410, 'action_expired']);
+
+      const p3 = await propose('18:00');
+      assert.equal((await oa.expect(200, 'POST', `/assistant/actions/${p3.action_id}/confirm`, { confirm_token: p3.confirm_token })).data.data.status, 'executed', 'token v0 (formato F5-B) segue válido');
+      const saved = process.env.ASSISTANT_TOKEN_SECRET;
+      delete process.env.ASSISTANT_TOKEN_SECRET;
+      try {
+        assert.equal(errCode(await oa.call('POST', `/assistant/actions/${p2.action_id}/token`)), 'assistant_actions_disabled');
+      } finally { process.env.ASSISTANT_TOKEN_SECRET = saved; }
+    });
 
   } finally {
     require('../services/ai/provider').setProvider(null);

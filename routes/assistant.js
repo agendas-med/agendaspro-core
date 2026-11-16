@@ -64,6 +64,8 @@ router.post('/conversations/:id/messages', ...member, paramPublicId, validateBod
   handle(retryAfter(req => assistant.sendMessage(ctx(req), req.params.id, req.body.message))));
 
 router.post('/actions/:id/confirm', ...member, paramPublicId, validateBody(confirmSchema), handle(req => actions.confirm(ctx(req), req.params.id, req.body.confirm_token)));
+// Follow-up 1: novo confirm_token para ação pendente do próprio usuário (o anterior é invalidado).
+router.post('/actions/:id/token', ...member, paramPublicId, handle(req => actions.reissueToken(ctx(req), req.params.id)));
 router.post('/actions/:id/reject', ...member, paramPublicId, handle(req => actions.reject(ctx(req), req.params.id)));
 
 // Base de conhecimento (texto não estruturado para o RAG): somente admin.
