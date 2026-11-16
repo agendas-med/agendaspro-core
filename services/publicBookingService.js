@@ -353,6 +353,8 @@ async function createBooking(slug, body, { guard = async () => {}, companyLookup
       await query(`INSERT INTO public_bookings (public_id, company_id, appointment_id, customer_id, sale_id, idempotency_key, request_hash, source, deposit_cents, token_expires_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [publicId, locked.id, appt.insertId, customer.id, sale.insertId, body.idempotency_key, hash, body.source, depositCents, tokens.expiryFromNow()]);
+      // F6: atribuição opcional (UTM da página pública). Fora do request_hash: reenvio sem ela é o mesmo pedido.
+      if (body.attribution) await require('./attributionService').recordBooking(query, locked.id, appt.insertId, body.attribution);
       // LGPD: registro do consentimento dado na página pública.
       await query('INSERT INTO consents (company_id, customer_id, purpose, granted, source) VALUES (?, ?, ?, 1, ?)',
         [locked.id, customer.id, 'public_booking', `public:${body.source}`.slice(0, 30)]);

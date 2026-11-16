@@ -116,6 +116,12 @@ const realTime = (value, helpers) => {
   return h < 24 && m < 60 ? value.slice(0, 16) : helpers.error('any.invalid');
 };
 
+// F6: UTM da página pública (minúsculas, [a-z0-9_-.]); sem PII.
+const UTM = max => Joi.string().trim().lowercase().pattern(/^[a-z0-9_.-]{1,80}$/).max(max).allow('');
+const UTM_OBJECT = Joi.object({
+  utm_source: UTM(40), utm_medium: UTM(40), utm_campaign: UTM(80), utm_content: UTM(80),
+}).unknown(false);
+
 const slugParams = Joi.object({ slug: SLUG }).unknown(false);
 const tokenParams = Joi.object({ token: Joi.string().max(120).required() }).unknown(false);
 
@@ -140,6 +146,7 @@ const bookingBody = Joi.object({
   source: Joi.string().valid(...SOURCES).required(),
   idempotency_key: Joi.string().pattern(/^[A-Za-z0-9_-]{8,64}$/).required(),
   turnstile_token: TOKEN,
+  attribution: UTM_OBJECT,
 }).unknown(false);
 
 const leadBody = Joi.object({
@@ -193,7 +200,14 @@ router.post('/b/:slug/bookings', ipLimit('read', 600, 300), slugGate, validate(s
   return { __status: out.status, __body: out.body };
 }));
 
-router.get('/bookings/:token', ipLimit('manage', 600, 60), validate(tokenParams, 'params'), handle(req => booking.getByToken(req.valid_params.token)));
+// F6: visita à página pública com UTM (contador agregado por dia; sem IP/PII gravado).
+// Limite por IP em banco; slug inexistente = 404 e conta no anti-enumeração.
+router.post('/b/:slug/visits', ipLimit('visits', 3600, Number(process.env.PUBLIC_VISITS_IP_MAX) || 60), slugGate, validate(slugParams, 'params'), validate(UTM_OBJECT, 'body'), handle(async req => {
+  await require('../services/attributionService').recordVisit(req.valid_params.slug, req.valid_body);
+  return { __status: 202, __body: { recorded: true } };
+}));
+
+router.get('/bookings/:token',ipLimit('manage', 600, 60), validate(tokenParams, 'params'), handle(req => booking.getByToken(req.valid_params.token)));
 
 router.post('/bookings/:token/cancel', ipLimit('manage', 600, 60), validate(tokenParams, 'params'), validate(cancelBody, 'body'),
   handle(req => booking.cancelByToken(req.valid_params.token)));

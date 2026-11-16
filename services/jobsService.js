@@ -198,3 +198,9 @@ register("whatsapp_inbound", (payload, job) => require("./whatsapp/inbound").han
 // F5-core-B: indexação incremental do RAG do assistente (por hash de conteúdo).
 register("assistant_rag_reconcile", (payload) => require("./assistant/rag").handleJob(payload));
 registerProducer("assistant_rag_reconcile", (jobs) => require("./assistant/rag").enqueueReconciles(jobs));
+
+// F6: Instagram (renovação do token longo antes dos 60 dias; snapshot diário Premium). Payload só com ids.
+register("instagram_token_refresh", (payload) => require("./instagram/service").refreshTokenJob(payload));
+register("instagram_snapshot", (payload) => require("./instagram/service").snapshotJob(payload));
+registerProducer("instagram_token_refresh", (jobs) => require("./instagram/service").enqueueRefreshes(jobs));
+registerProducer("instagram_snapshot", (jobs) => require("./instagram/service").enqueueSnapshots(jobs));
