@@ -27,7 +27,7 @@ const listQuery = Joi.object({
   limit: Joi.number().integer().min(1).max(100).default(50),
   offset: Joi.number().integer().min(0).max(100000).default(0),
 });
-const messagesQuery = Joi.object({ before_id: id, limit: Joi.number().integer().min(1).max(200).default(50) });
+const messagesQuery = Joi.object({ before_id: id, after_id: id, limit: Joi.number().integer().min(1).max(200).default(50) }).oxor('before_id', 'after_id');
 const sendSchema = Joi.object({
   text: Joi.string().trim().min(1).max(4096),
   template: Joi.string().trim().pattern(/^[a-z0-9_]{1,80}$/),

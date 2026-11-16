@@ -87,13 +87,13 @@ Liga com `WHATSAPP_CLOUD_ENABLED=true` (sem isso, avisos são pulados com `not_c
 ### Painel — `/whatsapp/*` (JWT + `Selected-company`; `company_id` sempre da sessão)
 | Método e rota | Papel | Notas |
 |---|---|---|
-| `GET /whatsapp/status` | membro | `enabled`, `wa_link`, `settings` (sem segredos) |
+| `GET /whatsapp/status` | membro | `enabled`, `plan` (follow-up 1, mesmo código de `/usage`), `wa_link`, `settings` (sem segredos) |
 | `PUT /whatsapp/config` | admin | `bot_enabled`, `ai_enabled`, `welcome_text`, `ai_daily_token_limit` |
-| `GET /whatsapp/conversations` | membro | `mode`, `assigned_to_me`, `filter=waiting\|assumed\|opted_out` (follow-up 1: aguardando = humano sem atendente; assumidas = humano com atendente; contato com PARAR), `limit≤100`, `offset`; inclui `window_open` |
+| `GET /whatsapp/conversations` | membro | `mode`, `assigned_to_me`, `filter=waiting\|assumed\|opted_out` (follow-up 1: aguardando = humano sem atendente; assumidas = humano com atendente; contato com PARAR), `limit≤100`, `offset`; inclui `window_open`, `unread_count` e `assigned_user_name` (follow-up 1) |
 | `GET /whatsapp/conversations/summary` | membro | follow-up 1: `{total, bot, human, waiting, assumed, mine, opted_out, unread_conversations, unread_messages}` |
 | `POST /whatsapp/conversations/:id/read` | membro | follow-up 1: marca lida até a última mensagem (marcador da equipe, não por usuário; responder também marca); devolve a conversa. Cada conversa traz `unread_count` (recebidas acima do marcador) |
 | `GET /whatsapp/conversations/:id` | membro | 404 `conversation_not_found` fora da empresa |
-| `GET /whatsapp/conversations/:id/messages` | membro | `before_id`, `limit≤200` |
+| `GET /whatsapp/conversations/:id/messages` | membro | `before_id` (mais antigas) ou `after_id` (follow-up 1: polling das novas, ordem crescente; exclusivo com `before_id` → 400), `limit≤200` |
 | `POST /whatsapp/conversations/:id/assume` | membro | modo `human` (bot calado) |
 | `POST /whatsapp/conversations/:id/release` | membro | volta ao bot (auto após `WHATSAPP_HUMAN_TIMEOUT_H`, 12h) |
 | `POST /whatsapp/conversations/:id/messages` | membro | `{text}` xor `{template, params[]}` → 201; 409 `window_closed`/`opted_out`/`template_unavailable`; 400 `template_params`; 402 `plan_upgrade_required` |

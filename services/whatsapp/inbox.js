@@ -16,6 +16,7 @@ function presentConversation(row) {
     mode: row.mode,
     state: row.state,
     assigned_user_id: row.assigned_user_id || null,
+    assigned_user_name: row.assigned_user_name || null,
     handoff_at: row.handoff_at_wall || null,
     last_inbound_at: row.last_inbound_wall || null,
     last_message_at: row.last_message_wall || null,
@@ -30,6 +31,7 @@ const UNREAD_SQL = `(SELECT COUNT(*) FROM whatsapp_messages u WHERE u.conversati
   AND u.direction = 'in' AND u.id > COALESCE(c.last_read_message_id, 0))`;
 
 const CONV_FIELDS = `c.id, c.mode, c.state, c.assigned_user_id, ct.wa_id, ct.profile_name, ct.opted_out_at, ${WINDOW_SQL} AS window_open, ${UNREAD_SQL} AS unread_count,
+  (SELECT u.name FROM users u WHERE u.id = c.assigned_user_id) AS assigned_user_name,
   DATE_FORMAT(c.handoff_at, '%Y-%m-%d %H:%i:%s') AS handoff_at_wall, DATE_FORMAT(c.last_inbound_at, '%Y-%m-%d %H:%i:%s') AS last_inbound_wall,
   DATE_FORMAT(c.last_message_at, '%Y-%m-%d %H:%i:%s') AS last_message_wall`;
 
@@ -87,13 +89,15 @@ async function getConversation(companyId, id) {
   return presentConversation(row);
 }
 
-async function listMessages(companyId, conversationId, { before_id: beforeId, limit = 50 } = {}) {
+// before_id: página anterior (mais antigas). after_id (follow-up 1): polling das novas, em ordem crescente.
+async function listMessages(companyId, conversationId, { before_id: beforeId, after_id: afterId, limit = 50 } = {}) {
   await getConversation(companyId, conversationId);
+  const cursor = afterId ? ' AND id > ?' : beforeId ? ' AND id < ?' : '';
   const rows = await functions.executeSql(`SELECT id, direction, author, user_id, type, body, template_name, status, error_code,
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at, DATE_FORMAT(status_at, '%Y-%m-%d %H:%i:%s') AS status_at
-    FROM whatsapp_messages WHERE conversation_id = ? AND company_id = ?${beforeId ? ' AND id < ?' : ''} ORDER BY id DESC LIMIT ?`,
-  beforeId ? [conversationId, companyId, beforeId, limit] : [conversationId, companyId, limit]);
-  return rows.reverse();
+    FROM whatsapp_messages WHERE conversation_id = ? AND company_id = ?${cursor} ORDER BY id ${afterId ? 'ASC' : 'DESC'} LIMIT ?`,
+  [conversationId, companyId, ...(afterId || beforeId ? [afterId || beforeId] : []), limit]);
+  return afterId ? rows : rows.reverse();
 }
 
 async function assume(companyId, conversationId, userId) {
@@ -154,8 +158,10 @@ async function status(companyId) {
   const account = provider.cloudEnabled() ? await provider.platformAccount() : null;
   const digits = String(account?.display_phone || '').replace(/\D/g, '');
   const [today] = await functions.executeSql("SELECT tokens_used FROM ai_usage_daily WHERE company_id = ? AND day = DATE(NOW())", [companyId]);
+  const ent = await plans.entitlement(companyId);
   return {
     enabled: provider.cloudEnabled(),
+    plan: ent.plan_code, // follow-up 1 (mesmo valor de /usage)
     display_phone: account?.display_phone || null,
     // Link para a página/divulgação: abre a conversa já identificando a empresa pelo slug.
     wa_link: digits && company?.slug ? `https://wa.me/${digits}?text=${encodeURIComponent(`Agendar ${company.slug}`)}` : null,

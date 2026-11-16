@@ -445,6 +445,22 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       await B.as('POST', `/whatsapp/conversations/${fu.wait}/read`, undefined, 404);
       assert.equal((await sum(B)).waiting, 0);
     });
+
+    await t.test('follow-up 1: nome do atendente, after_id e plano no status', async () => {
+      const conv = (await A.as('GET', `/whatsapp/conversations/${fu.taken}`)).data;
+      assert.equal(conv.assigned_user_name, 'Dono a');
+      assert.equal((await A.as('GET', `/whatsapp/conversations/${fu.wait}`)).data.assigned_user_name, 'Dono a', 'quem respondeu assumiu');
+      const all = (await A.as('GET', `/whatsapp/conversations/${fu.wait}/messages?limit=200`)).data;
+      assert.ok(all.length >= 3);
+      const pivot = all[all.length - 3].id;
+      const newer = (await A.as('GET', `/whatsapp/conversations/${fu.wait}/messages?after_id=${pivot}`)).data;
+      assert.deepEqual(newer.map(m => m.id), all.slice(-2).map(m => m.id), 'after_id: só as novas, em ordem crescente');
+      assert.deepEqual((await A.as('GET', `/whatsapp/conversations/${fu.wait}/messages?after_id=${all[all.length - 1].id}`)).data, []);
+      await A.as('GET', `/whatsapp/conversations/${fu.wait}/messages?after_id=1&before_id=2`, undefined, 400);
+      const st = (await A.as('GET', '/whatsapp/status')).data;
+      assert.equal(st.plan, (await A.as('GET', '/whatsapp/usage')).data.plan);
+      assert.ok(typeof st.plan === 'string' && st.plan.length > 0);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));
