@@ -95,3 +95,27 @@ O uso da quota é a soma de **membros** e **convites pendentes não vencidos**. 
   - termina com a view canônica (`sql/appointment-status-view.sql`).
 - Verificação: carregar o snapshot num banco vazio e rodar `npm run db:migrate` em seguida dá exatamente o mesmo schema do banco migrado do zero (`diff` vazio).
 - A fonte da verdade continuam sendo as migrations. O snapshot serve de referência e para `sql/inserts.sql`.
+# Adendo: assistente (compatível com F5-B)
+
+Tudo o que já existia no `contratos-f5b.md` continua valendo. Os itens abaixo são **adições**; mudanças de status ou de formato estão marcadas.
+
+## A1. `GET /assistant/status` (membro)
+
+- Somente leitura: não consome nem cria o contador de cota.
+- Fica **antes** do gate do `ASSISTANT_ENABLED`. Com o assistente desligado, responde `200` com `enabled:false`; as demais rotas continuam `503 assistant_disabled`.
+
+```
+{ data: {
+  enabled, plan: {code, name}, role: 'admin'|'member',
+  usage: {interactions_used, interactions_limit (null = ilimitado), period: 'YYYY-MM'},
+  ai_available,
+  rag_enabled,
+  actions: {enabled, reason: null|'assistant_disabled'|'not_configured'|'plan', tools: [ferramentas de escrita que ESTE usuário pode propor]},
+  read_tools: [...],
+  knowledge_admin
+} }
+```
+
+- `ai_available` diz se há provider de IA. Sem ele, só o roteador determinístico responde.
+- `actions.enabled` só é `true` com o assistente ligado, `ASSISTANT_TOKEN_SECRET` configurado e plano com `assistant_actions`.
+- O front pode trocar o teste `GET /assistant/conversations` por esta rota, e o `/billing/subscription` pelo `usage` daqui.

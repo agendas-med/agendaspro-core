@@ -44,6 +44,9 @@ const knowledgeId = (req, res, next) => {
   return next();
 };
 
+// Follow-up 1: status antes do gate (200 com enabled:false em vez de 503).
+router.get('/status', ...member, handle(req => assistant.status(ctx(req))));
+
 router.use(enabled);
 
 router.post('/conversations', ...member, handle(async req => ({ __status: 201, data: await assistant.createConversation(ctx(req)) })));

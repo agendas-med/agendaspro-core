@@ -64,6 +64,36 @@ async function getConversation(ctx, publicId) {
   };
 }
 
+// ---------- status (follow-up 1) ----------
+
+// Somente leitura: não consome nem cria contador. Funciona com o assistente desligado (enabled:false).
+async function status(ctx) {
+  const cfg = config();
+  const ent = await plansService.entitlement(ctx.companyId);
+  const limit = ent.features[METRIC];
+  const used = await plansService.usageOf(functions.executeSql.bind(functions), ctx.companyId, METRIC, new Date());
+  const isAdmin = await actions.isAdmin(ctx.userId, ctx.companyId);
+  const planAllows = ent.features.assistant_actions === true;
+  const actionsEnabled = cfg.enabled && !!cfg.tokenSecret && planAllows;
+  const writable = tools.WRITE_NAMES.filter(name => isAdmin || !tools.get(name).admin);
+  return {
+    enabled: cfg.enabled,
+    plan: { code: ent.plan_code, name: ent.plan_name },
+    role: isAdmin ? 'admin' : 'member',
+    usage: { interactions_used: used, interactions_limit: limit === null || limit === undefined ? null : Number(limit), period: plansService.monthPeriod(new Date()) },
+    ai_available: cfg.enabled && !!getProvider(),
+    rag_enabled: cfg.enabled && cfg.ragEnabled,
+    actions: {
+      enabled: actionsEnabled,
+      // Motivo quando desligado: 'assistant_disabled' (flag), 'not_configured' (sem segredo), 'plan' (Free).
+      reason: actionsEnabled ? null : (!cfg.enabled ? 'assistant_disabled' : !cfg.tokenSecret ? 'not_configured' : 'plan'),
+      tools: actionsEnabled ? writable : [],
+    },
+    read_tools: tools.READ_NAMES,
+    knowledge_admin: isAdmin,
+  };
+}
+
 // ---------- cota / rate limit ----------
 
 // Consome 1 interação de forma atômica (sem corrida entre dynos). 402 quando estoura.
@@ -358,4 +388,4 @@ async function answer(ctx, text, history, summary, injection) {
   };
 }
 
-module.exports = { createConversation, listConversations, getConversation, sendMessage, consumeInteraction, cleanOutput, CLASSIFY_SCHEMA, classifyValidator, CANARY, _answer: answer };
+module.exports = { status, createConversation,listConversations, getConversation, sendMessage, consumeInteraction, cleanOutput, CLASSIFY_SCHEMA, classifyValidator, CANARY, _answer: answer };
