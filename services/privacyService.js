@@ -31,9 +31,18 @@ async function removeAssistantVectors(company_id, customer_id) {
     await require("./assistant/rag").removeCustomerSources(company_id, customer_id);
 }
 
+// Identificadores do titular (antes de apagá-los) para limpar o histórico do assistente.
+async function subjectOf(company_id, customer_id, query) {
+    const [c] = await query('SELECT name, tel, cpf, email FROM customers WHERE id = ? AND company_id = ?', [customer_id, company_id]);
+    const names = await query('SELECT DISTINCT customer_name FROM appointments WHERE customer_id = ? AND company_id = ? AND customer_name IS NOT NULL LIMIT 20', [customer_id, company_id]);
+    return { customerId: customer_id, names: [c?.name, ...names.map(n => n.customer_name)], tel: c?.tel, cpf: c?.cpf, email: c?.email };
+}
+const scrubAssistant = (query, company_id, subject) => require('./assistant/privacy').scrubCustomer(query, company_id, subject);
+
 async function anonymizeCustomer(company_id, customer_id) {
     await functions.executeTransaction(async (query) => {
         await assertCustomer(company_id, customer_id, query);
+        const subject = await subjectOf(company_id, customer_id, query);
         await query(
             `UPDATE customers SET name = 'Cliente anonimizado', tel = NULL, cpf = NULL, email = NULL, image = NULL, birthday = NULL, anonymized_at = NOW() WHERE id = ? AND company_id = ?`,
             [customer_id, company_id]
@@ -43,15 +52,16 @@ async function anonymizeCustomer(company_id, customer_id) {
             [customer_id, company_id]
         );
         await query(`UPDATE consents SET granted = 0, revoked_at = COALESCE(revoked_at, NOW()) WHERE customer_id = ? AND company_id = ?`, [customer_id, company_id]);
+        await scrubAssistant(query, company_id, subject);
     });
     await removeAssistantVectors(company_id, customer_id);
 }
 
 // Exclusão definitiva só sem histórico financeiro (as FKs apagariam vendas/pagamentos em cascata).
+// Os vetores só são removidos DEPOIS do DELETE confirmado (um 409 não perde nada); os IDs dos
+// agendamentos são coletados antes porque somem em cascata.
 async function deleteCustomer(company_id, customer_id) {
-    await assertCustomer(company_id, customer_id);
-    // Antes do DELETE: as observações dos agendamentos somem em cascata e o vínculo se perderia.
-    await removeAssistantVectors(company_id, customer_id);
+    let appointmentIds = [];
     await functions.executeTransaction(async (query) => {
         await assertCustomer(company_id, customer_id, query);
         const [{ total }] = await query(
@@ -59,8 +69,14 @@ async function deleteCustomer(company_id, customer_id) {
             [customer_id, company_id, customer_id, company_id]
         );
         if (Number(total) > 0) throw new HttpError(409, 'Cliente possui histórico financeiro: use a anonimização.');
+        appointmentIds = (await query('SELECT id FROM appointments WHERE customer_id = ? AND company_id = ?', [customer_id, company_id])).map(r => r.id);
+        const subject = await subjectOf(company_id, customer_id, query);
+        // appointment_services não tem ON DELETE CASCADE: sem isso, cliente com agendamento dava 500.
+        if (appointmentIds.length) await query(`DELETE FROM appointment_services WHERE appointment_id IN (?)`, [appointmentIds]);
         await query(`DELETE FROM customers WHERE id = ? AND company_id = ?`, [customer_id, company_id]);
+        await scrubAssistant(query, company_id, subject);
     });
+    await require("./assistant/rag").removeAppointmentSources(company_id, appointmentIds);
 }
 
 async function recordConsent(company_id, customer_id, purpose, granted, source) {

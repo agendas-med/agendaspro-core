@@ -386,6 +386,70 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       assert.ok((await sql('SELECT COUNT(*) AS n FROM assistant_embeddings WHERE company_id = ?', [B]))[0].n >= 1);
     });
 
+    await t.test('LGPD (follow-up 1): 409 na exclusão preserva vetores; anonimização/exclusão limpam o histórico do assistente', async () => {
+      const privacy = require('../services/privacyService');
+      const audit = require('../services/assistant/audit');
+      const noteCount = async apptIds => (await sql(`SELECT COUNT(*) AS n FROM assistant_embeddings WHERE company_id = ? AND source_type = 'appointment_note' AND source_id IN (${apptIds.map(() => '?').join(',')})`, [A, ...apptIds]))[0].n;
+      const mk = async (name, tel, email, note, hour) => {
+        const id = idOf(await customersService.create(A, name, null, null, tel, null, email)) || (await sql('SELECT id FROM customers WHERE company_id = ? AND name = ?', [A, name]))[0].id;
+        const appt = idOf(await appointmentsService.create(A, id, name, `${today} ${hour}:00:00`, 30, note, svc(serviceA, 'Limpeza', 40), 'agendado', {}, {}))
+          || (await sql('SELECT id FROM appointments WHERE company_id = ? AND customer_id = ? ORDER BY id DESC LIMIT 1', [A, id]))[0].id;
+        return { id, appt };
+      };
+      const joana = await mk("Joana D'Ávila (Souza)", '11987654321', 'joana.souza@example.test', 'Pele sensível ao ácido glicólico', 19);
+      const pedro = await mk('Pedro Henrique', '21912345678', null, 'Prefere atendimento no fim da tarde', 20);
+      await rag.reconcile(A);
+      assert.ok(await noteCount([joana.appt]) >= 1 && await noteCount([pedro.appt]) >= 1);
+
+      // Exclusão bloqueada por histórico financeiro: 409 e NADA é removido.
+      await sql("INSERT INTO sales (company_id, customer_id, status) VALUES (?, ?, 'realizada')", [A, joana.id]);
+      await assert.rejects(privacy.deleteCustomer(A, joana.id), e => e.status === 409 || e.statusCode === 409);
+      assert.ok(await noteCount([joana.appt]) >= 1, 'vetor preservado após 409');
+
+      // PII em mensagens, título, ação pendente e auditoria (JSON com número e texto).
+      route('none');
+      await say(oa, convA, "Ligue para Joana D'Ávila (Souza) no (11) 98765-4321 ou joana.souza@example.test");
+      const conv = (await sql('SELECT id FROM assistant_conversations WHERE public_id = ?', [convA]))[0].id;
+      await sql("UPDATE assistant_conversations SET title = ? WHERE id = ?", ["Conversa sobre Joana D'Ávila (Souza)", conv]);
+      const actionId = (await sql(
+        "INSERT INTO assistant_actions (public_id, company_id, user_id, conversation_id, tool, summary, params, payload_hash, status, expires_at_ms) VALUES (?, ?, ?, ?, 'create_appointment', ?, ?, ?, 'pending', ?)",
+        [crypto.randomBytes(16).toString('hex'), A, ownerA.id, conv, "Agendar Joana D'Ávila (Souza)", JSON.stringify({ appointment: { customer_id: joana.id, tel: 11987654321 } }), 'x'.repeat(64), Date.now() + 600000])).insertId;
+      await audit.log({ companyId: A, userId: ownerA.id, conversationId: conv, event: 'tool_read', tool: 'find_customers', params: { search: '11 98765-4321', phone: 11987654321 }, detail: 'joana.souza@example.test' });
+      const otherMsg = "Pedro Henrique pediu horário; Joana é nome comum";
+
+      await privacy.anonymizeCustomer(A, joana.id);
+      const texts = (await sql('SELECT content FROM assistant_messages WHERE company_id = ?', [A])).map(m => m.content).join('\n');
+      assert.doesNotMatch(texts, /D'Ávila|98765-?4321|joana\.souza/);
+      assert.match(texts, /\[dado removido\]/);
+      assert.doesNotMatch((await sql('SELECT title FROM assistant_conversations WHERE id = ?', [conv]))[0].title, /Ávila/);
+      const [act] = await sql('SELECT status, summary, params FROM assistant_actions WHERE id = ?', [actionId]);
+      assert.equal(act.status, 'expired');
+      assert.doesNotMatch(act.summary, /Ávila/);
+      const params = typeof act.params === 'string' ? JSON.parse(act.params) : act.params;
+      assert.deepEqual(params, { redacted: true });
+      const audits = await sql('SELECT params, detail FROM assistant_audit WHERE company_id = ? AND event = ?', [A, 'tool_read']);
+      for (const a of audits) {
+        const raw = typeof a.params === 'string' ? a.params : JSON.stringify(a.params);
+        if (raw) JSON.parse(raw);
+        assert.doesNotMatch(`${raw} ${a.detail}`, /98765|11987654321|joana\.souza/);
+      }
+      assert.equal((await sql('SELECT COUNT(*) AS n FROM assistant_audit WHERE company_id = ? AND JSON_VALID(params) = 0', [A]))[0].n, 0);
+      assert.equal(await noteCount([joana.appt]), 0);
+      // Outro cliente e outra empresa intactos.
+      assert.ok(await noteCount([pedro.appt]) >= 1);
+      assert.equal(require('../services/assistant/privacy').patterns({ names: ['Ana'] }), null, 'nome curto ignorado');
+      assert.equal(otherMsg.replace(require('../services/assistant/privacy').patterns({ names: ["Joana D'Ávila (Souza)"] }).js, 'X'), otherMsg);
+
+      // Exclusão sem histórico: remove vetores e limpa o histórico.
+      await say(oa, convA, 'Pedro Henrique ligou do 21 91234-5678');
+      // O agendamento gera venda em aberto; sem histórico financeiro real para o teste.
+      await sql('DELETE FROM payments WHERE company_id = ? AND customer_id = ?', [A, pedro.id]);
+      await sql('DELETE FROM sales WHERE company_id = ? AND customer_id = ?', [A, pedro.id]);
+      await privacy.deleteCustomer(A, pedro.id);
+      assert.equal(await noteCount([pedro.appt]), 0);
+      assert.doesNotMatch((await sql('SELECT content FROM assistant_messages WHERE company_id = ?', [A])).map(m => m.content).join('\n'), /Pedro Henrique|91234-5678/);
+    });
+
     await t.test('rate limit (429 + Retry-After)', async () => {
       process.env.ASSISTANT_RATE_PER_MIN = '1';
       const convB = (await ob.expect(201, 'POST', '/assistant/conversations')).data.data.id;

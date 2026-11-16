@@ -193,7 +193,11 @@ function touch(companyId) {
 // Remoção imediata (LGPD): fontes ligadas a um cliente anonimizado/excluído.
 async function removeCustomerSources(companyId, customerId) {
   const rows = await functions.executeSql('SELECT id FROM appointments WHERE company_id = ? AND customer_id = ?', [companyId, customerId]);
-  for (const r of rows) await store.removeSource(companyId, 'appointment_note', r.id);
+  await removeAppointmentSources(companyId, rows.map(r => r.id));
+}
+// Por IDs já coletados (exclusão: os agendamentos somem em cascata antes da limpeza).
+async function removeAppointmentSources(companyId, appointmentIds) {
+  for (const id of appointmentIds || []) await store.removeSource(companyId, 'appointment_note', id);
 }
 
 // Producer horário: reconcilia empresas que usam o assistente (conversa ou base de conhecimento).
@@ -215,4 +219,4 @@ async function handleJob(payload) {
 
 const removeSource = (companyId, sourceType, sourceId) => store.removeSource(companyId, sourceType, sourceId);
 
-module.exports = { search, reconcile, touch, removeSource, removeCustomerSources, enqueueReconciles, handleJob, sources, setStore, blobStore, cosine, toBlob, fromBlob, hourKey };
+module.exports = { search, reconcile, touch, removeSource, removeCustomerSources, removeAppointmentSources, enqueueReconciles, handleJob, sources, setStore, blobStore, cosine, toBlob, fromBlob, hourKey };
