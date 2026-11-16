@@ -26,6 +26,11 @@ async function exportCustomer(company_id, customer_id) {
 }
 
 // Anonimização: remove identificadores e mantém o histórico financeiro/agenda sem PII.
+// LGPD: embeddings do assistente (F5-core-B) derivados de observações do cliente.
+async function removeAssistantVectors(company_id, customer_id) {
+    await require("./assistant/rag").removeCustomerSources(company_id, customer_id);
+}
+
 async function anonymizeCustomer(company_id, customer_id) {
     await functions.executeTransaction(async (query) => {
         await assertCustomer(company_id, customer_id, query);
@@ -39,10 +44,14 @@ async function anonymizeCustomer(company_id, customer_id) {
         );
         await query(`UPDATE consents SET granted = 0, revoked_at = COALESCE(revoked_at, NOW()) WHERE customer_id = ? AND company_id = ?`, [customer_id, company_id]);
     });
+    await removeAssistantVectors(company_id, customer_id);
 }
 
 // Exclusão definitiva só sem histórico financeiro (as FKs apagariam vendas/pagamentos em cascata).
 async function deleteCustomer(company_id, customer_id) {
+    await assertCustomer(company_id, customer_id);
+    // Antes do DELETE: as observações dos agendamentos somem em cascata e o vínculo se perderia.
+    await removeAssistantVectors(company_id, customer_id);
     await functions.executeTransaction(async (query) => {
         await assertCustomer(company_id, customer_id, query);
         const [{ total }] = await query(

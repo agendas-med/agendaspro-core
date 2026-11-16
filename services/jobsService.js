@@ -188,3 +188,7 @@ register("lead_notify", publicNotifications.leadNotify);
 register("booking_confirmation", publicNotifications.bookingConfirmation);
 // F4: WhatsApp Cloud API (mensagens recebidas e status de entrega do webhook /webhook/meta).
 register("whatsapp_inbound", (payload, job) => require("./whatsapp/inbound").handle(payload, job));
+
+// F5-core-B: indexação incremental do RAG do assistente (por hash de conteúdo).
+register("assistant_rag_reconcile", (payload) => require("./assistant/rag").handleJob(payload));
+registerProducer("assistant_rag_reconcile", (jobs) => require("./assistant/rag").enqueueReconciles(jobs));
