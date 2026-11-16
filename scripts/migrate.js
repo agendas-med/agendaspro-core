@@ -163,11 +163,13 @@ async function migrate({ log = console.log } = {}) {
         log(`Migration aplicada: ${baseline.version}`);
       }
       // Banco antigo (com tabelas ou com a versão do script anterior): baseline já existe.
-      else {
-        const created = await createMissingBaselineTables(query, baseline.file);
-        if (created.length) log(`Tabelas do baseline ausentes criadas: ${created.join(', ')}`);
-      }
       await query('INSERT IGNORE INTO schema_migrations(version) VALUES (?)', [baseline.version]);
+    }
+    // Só até a primeira execução completa (LEGACY_VERSION é gravada no fim): cobre também a nova
+    // tentativa depois de uma falha que já tinha registrado o baseline.
+    if (!applied.has(LEGACY_VERSION) && existingTables) {
+      const created = await createMissingBaselineTables(query, baseline.file);
+      if (created.length) log(`Tabelas do baseline ausentes criadas: ${created.join(', ')}`);
     }
     await legacyRepair(query);
     for (const migration of rest) {
