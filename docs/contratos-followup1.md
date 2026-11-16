@@ -127,3 +127,14 @@ Tudo o que já existia no `contratos-f5b.md` continua valendo. Os itens abaixo s
 - `degraded`: `true` quando `source = fallback` **ou** quando a ferramenta rodou mas a redação pela IA falhou e o core respondeu com o template cru. `false` nos demais casos.
 
 Interação `fallback` continua não contando cota (`usage.counted = false`); template após falha de redação conta (`counted = true`), pois a ferramenta foi executada. A UI pode exibir um aviso discreto quando `degraded = true`.
+
+## A3. Base de conhecimento: `active` e PATCH parcial
+
+Migration `017_assistant_knowledge_active.sql`: coluna `assistant_knowledge.active TINYINT(1) NOT NULL DEFAULT 1` (itens existentes ficam ativos).
+
+- Todos os itens retornados (`GET`, `POST`, `PUT`, `PATCH`) ganham `active: boolean`.
+- `POST /assistant/knowledge` aceita `active` opcional (padrão `true`).
+- `PUT /assistant/knowledge/:id` continua exigindo `kind`, `title`, `content` (igual ao F5-B); `active` é opcional e, ausente, **mantém** o valor atual.
+- **Novo** `PATCH /assistant/knowledge/:id` (admin): corpo parcial com qualquer subconjunto de `kind`, `title`, `content`, `active` (ao menos um campo; senão 400 `{errors:[...]}`). Resposta 200 com o item completo.
+- Inativo sai do RAG imediatamente (embeddings do item removidos) e não é reindexado pelo reconcile; `search_knowledge` não o cita. Reativar agenda a reindexação (job `assistant_rag_reconcile`, até 1 por hora por empresa).
+- Itens inativos contam para o limite de 500 itens.

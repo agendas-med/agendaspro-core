@@ -176,6 +176,42 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
       route('none');
       plan.reply = () => ({ reply: 'Resposta da IA.' });
     });
+    await t.test('3: base de conhecimento active + PATCH parcial', async () => {
+      const rag = require('../services/assistant/rag');
+      const embCount = async id => Number((await sql("SELECT COUNT(*) AS n FROM assistant_embeddings WHERE company_id = ? AND source_type = 'knowledge' AND source_id = ?", [A, id]))[0].n);
+      const k = (await oa.expect(201, 'POST', '/assistant/knowledge', { kind: 'policy', title: 'Política de remarcação', content: 'Remarcações gratuitas com 48 horas de antecedência mínima.' })).data.data;
+      assert.equal(k.active, true, 'padrão ativo');
+      await rag.reconcile(A);
+      assert.ok(await embCount(k.id) >= 1);
+
+      const off = (await oa.expect(200, 'PATCH', `/assistant/knowledge/${k.id}`, { active: false })).data.data;
+      assert.deepEqual([off.active, off.title, off.content], [false, k.title, k.content], 'parcial mantém os demais');
+      assert.equal(await embCount(k.id), 0, 'inativo sai do RAG na hora');
+      await rag.reconcile(A);
+      assert.equal(await embCount(k.id), 0, 'reconcile não reindexa inativo');
+      const listed = (await oa.expect(200, 'GET', '/assistant/knowledge')).data.data.find(i => i.id === k.id);
+      assert.equal(listed.active, false);
+
+      route('search_knowledge', { query: 'remarcação antecedência' });
+      const r = await say(oa, await newConv(oa), 'qual a política de remarcação?');
+      assert.equal(r.status, 200);
+      assert.ok((r.data.data.citations || []).every(c => !(c.source_type === 'knowledge' && c.source_id === k.id)), 'item inativo não é citado');
+      route('none');
+
+      const put = (await oa.expect(200, 'PUT', `/assistant/knowledge/${k.id}`, { kind: 'policy', title: 'Remarcação', content: k.content })).data.data;
+      assert.deepEqual([put.title, put.active], ['Remarcação', false], 'PUT sem active mantém o valor');
+      const on = (await oa.expect(200, 'PATCH', `/assistant/knowledge/${k.id}`, { active: true })).data.data;
+      assert.equal(on.active, true);
+      await rag.reconcile(A);
+      assert.ok(await embCount(k.id) >= 1, 'reativado volta ao RAG');
+
+      assert.equal((await oa.call('PATCH', `/assistant/knowledge/${k.id}`, {})).status, 400, 'PATCH vazio');
+      assert.equal((await oa.call('PATCH', `/assistant/knowledge/${k.id}`, { active: 'talvez' })).status, 400);
+      assert.equal((await ob.call('PATCH', `/assistant/knowledge/${k.id}`, { active: false })).status, 404, 'outra empresa');
+      assert.ok([401, 403].includes((await ma.call('PATCH', `/assistant/knowledge/${k.id}`, { active: false })).status), 'não admin');
+      const inactiveNew = (await oa.expect(201, 'POST', '/assistant/knowledge', { kind: 'faq', title: 'Rascunho', content: 'Texto ainda não publicado.', active: false })).data.data;
+      assert.equal(inactiveNew.active, false);
+    });
 
   } finally {
     require('../services/ai/provider').setProvider(null);

@@ -89,7 +89,7 @@ async function sources(companyId) {
   const q = functions.executeSql.bind(functions);
   const includeNotes = config().ragIncludeNotes;
   const [knowledge, services, notes, company] = await Promise.all([
-    q('SELECT id, kind, title, content FROM assistant_knowledge WHERE company_id = ? ORDER BY id LIMIT 500', [companyId]),
+    q('SELECT id, kind, title, content FROM assistant_knowledge WHERE company_id = ? AND active = 1 ORDER BY id LIMIT 500', [companyId]),
     q('SELECT id, name, observations, public_description FROM services WHERE company_id = ? LIMIT 500', [companyId]),
     !includeNotes ? [] : q(`SELECT a.id, a.observations, DATE_FORMAT(a.date, '%Y-%m-%d') AS day FROM appointments a JOIN customers c ON c.id = a.customer_id AND c.company_id = a.company_id
        WHERE a.company_id = ? AND a.observations IS NOT NULL AND a.observations <> '' AND c.anonymized_at IS NULL ORDER BY a.date DESC LIMIT 500`, [companyId]),

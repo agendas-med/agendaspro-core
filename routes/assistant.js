@@ -36,7 +36,15 @@ const knowledgeSchema = Joi.object({
   kind: Joi.string().valid('faq', 'policy', 'rule', 'template').required(),
   title: Joi.string().trim().min(1).max(160).required(),
   content: Joi.string().trim().min(1).max(4000).required(),
+  active: Joi.boolean(),
 });
+// Follow-up 1: PATCH parcial (ao menos um campo).
+const knowledgePatchSchema = Joi.object({
+  kind: Joi.string().valid('faq', 'policy', 'rule', 'template'),
+  title: Joi.string().trim().min(1).max(160),
+  content: Joi.string().trim().min(1).max(4000),
+  active: Joi.boolean(),
+}).min(1);
 const knowledgeId = (req, res, next) => {
   const { error, value } = Joi.number().integer().positive().required().validate(req.params.id);
   if (error) return res.status(400).send({ message: 'Id inválido.' });
@@ -62,6 +70,7 @@ router.post('/actions/:id/reject', ...member, paramPublicId, handle(req => actio
 router.get('/knowledge', ...admin, handle(req => knowledge.list(req.companyId)));
 router.post('/knowledge', ...admin, validateBody(knowledgeSchema), handle(async req => ({ __status: 201, data: await knowledge.create(req.companyId, req.usuario.id, req.body) })));
 router.put('/knowledge/:id', ...admin, knowledgeId, validateBody(knowledgeSchema), handle(req => knowledge.update(req.companyId, req.params.id, req.body)));
+router.patch('/knowledge/:id', ...admin, knowledgeId, validateBody(knowledgePatchSchema), handle(req => knowledge.update(req.companyId, req.params.id, req.body)));
 router.delete('/knowledge/:id', ...admin, knowledgeId, handle(req => knowledge.remove(req.companyId, req.params.id)));
 
 
