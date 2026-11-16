@@ -17,8 +17,8 @@ function fakeDb(rows) {
       return { affectedRows: rows.length };
     }
     if (q.startsWith('SELECT id, type, payload')) return rows;
-    if (q.startsWith("UPDATE jobs SET status = 'done'")) { log.done.push(params[0]); return {}; }
-    if (q.startsWith("UPDATE jobs SET status = 'failed'")) { log.failed.push(params[1]); return {}; }
+    if (q.startsWith("UPDATE jobs SET status = 'done'")) { log.done.push(params[params.length - 1]); return {}; }
+    if (q.startsWith("UPDATE jobs SET status = 'failed'")) { log.failed.push(params[params.length - 1]); return {}; }
     if (q.startsWith("UPDATE jobs SET status = 'pending', lock_token = NULL, locked_until = NULL, last_error")) { log.retried.push({ id: params[2], delay: params[1] }); return {}; }
     if (q.includes('attempts = GREATEST')) { log.released.push(...params[0]); return {}; }
     if (q.startsWith('SELECT COUNT(*) AS pending')) return [{ pending: log.released.length }];
