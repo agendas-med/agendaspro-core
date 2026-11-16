@@ -282,6 +282,37 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       assert.equal((await sql('SELECT COUNT(*) AS n FROM services WHERE company_id = ? AND name = ?', [A, 'Massagem']))[0].n, 1);
     });
 
+    await t.test('follow-up 1: plano e permissão são revalidados no confirm (não só na proposta)', async () => {
+      // Plano: proposta feita no Premium; empresa vira Free antes do confirm => 402, nada executa.
+      route('create_service', { name: 'Peeling', value: 120, duration: 40 });
+      const p = (await say(oa, convA, 'crie o serviço Peeling')).data.data.proposed_actions[0];
+      const plansService = require('../services/plansService');
+      const realEnt = plansService.entitlement;
+      plansService.entitlement = async (...args) => { const e = await realEnt(...args); return { ...e, plan_code: 'free', features: { ...e.features, assistant_actions: false } }; };
+      let r;
+      try {
+        r = await oa.call('POST', `/assistant/actions/${p.action_id}/confirm`, { confirm_token: p.confirm_token });
+      } finally { plansService.entitlement = realEnt; }
+      assert.deepEqual([r.status, errCode(r)], [402, 'plan_upgrade_required']);
+      assert.equal((await sql('SELECT COUNT(*) AS n FROM services WHERE company_id = ? AND name = ?', [A, 'Peeling']))[0].n, 0);
+      assert.equal((await sql('SELECT status FROM assistant_actions WHERE public_id = ?', [p.action_id]))[0].status, 'pending');
+
+      // Permissão: membro promovido a admin propõe; rebaixado antes do confirm => 403.
+      const [role] = await sql('SELECT id FROM config_company_roles WHERE company_id = ? AND permission = 1 LIMIT 1', [A]);
+      const grant = (await sql('INSERT INTO config_users_roles (role_id, user_id) VALUES (?, ?)', [role.id, memberA.id])).insertId;
+      const convM = (await ma.expect(201, 'POST', '/assistant/conversations')).data.data.id;
+      route('create_service', { name: 'Drenagem', value: 90, duration: 50 });
+      const pm = (await say(ma, convM, 'crie o serviço Drenagem')).data.data.proposed_actions?.[0];
+      assert.ok(pm, 'admin propõe');
+      await sql('DELETE FROM config_users_roles WHERE id = ?', [grant]);
+      r = await ma.call('POST', `/assistant/actions/${pm.action_id}/confirm`, { confirm_token: pm.confirm_token });
+      assert.deepEqual([r.status, errCode(r)], [403, 'assistant_forbidden']);
+      assert.equal((await sql('SELECT COUNT(*) AS n FROM services WHERE company_id = ? AND name = ?', [A, 'Drenagem']))[0].n, 0);
+      // Plano restaurado: a proposta original ainda pode ser confirmada.
+      await oa.expect(200, 'POST', `/assistant/actions/${p.action_id}/confirm`, { confirm_token: p.confirm_token });
+      route('none');
+    });
+
     await t.test('isolamento: IDs de outra empresa nunca viram proposta nem dado', async () => {
       route('create_appointment', { customer_id: custB, service_ids: [serviceA], date: `${today} 16:00` });
       let r = await oa.expect(200, 'POST', `/assistant/conversations/${convA}/messages`, { message: 'marque o cliente 2 hoje 16h' });
