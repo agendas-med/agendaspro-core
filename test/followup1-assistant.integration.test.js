@@ -286,6 +286,21 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
       assert.deepEqual(shape(await oa.call('POST', '/assistant/actions/zz/confirm', { confirm_token: 'x'.repeat(20) })), [404, 'action_not_found']);
       assert.deepEqual(shape(await oa.call('POST', '/assistant/actions/zz/reject')), [404, 'action_not_found']);
     });
+    await t.test('6: created_at/updated_at em UTC real (ISO com Z = instante correto)', async () => {
+      const near = (iso, label) => {
+        assert.match(String(iso), /Z$/, label);
+        assert.ok(Math.abs(Date.parse(iso) - Date.now()) < 120000, `${label}: ${iso} vs ${new Date().toISOString()}`);
+      };
+      const conv = await newConv(oa);
+      await say(oa, conv, 'agenda de hoje');
+      const got = (await oa.expect(200, 'GET', `/assistant/conversations/${conv}`)).data.data;
+      near(got.created_at, 'conversa');
+      for (const m of got.messages) near(m.created_at, `mensagem ${m.role}`);
+      near((await oa.expect(200, 'GET', '/assistant/conversations')).data.data.find(c => c.id === conv).updated_at, 'listagem');
+      const k = (await oa.expect(201, 'POST', '/assistant/knowledge', { kind: 'faq', title: 'Horário', content: 'Abrimos às 9h.' })).data.data;
+      near(k.created_at, 'kb created_at');
+      near(k.updated_at, 'kb updated_at');
+    });
 
   } finally {
     require('../services/ai/provider').setProvider(null);

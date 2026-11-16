@@ -170,3 +170,10 @@ Todas as respostas abaixo saem no formato `{ error: { code, message, ... } }`:
 - A UI que classifica só por status (como `classifyKnowledgeError`) segue funcionando: 403 cai em "forbidden", 404 em "not_found", 400 em "validation", 409 em "limit", e agora há `error.message` para exibir.
 - Os campos de texto da KB passam a ser gravados já com `trim`.
 - O `requireAdmin` compartilhado (401) não mudou nas outras rotas do core; só a base de conhecimento usa a guarda nova.
+
+## A6. `created_at` / `updated_at`: já são UTC correto (sem mudança de código)
+
+Investigado e reproduzido: a conexão roda `SET time_zone = '-03:00'` e o pool lê DATETIME como `-03:00`, então o core serializa o **instante correto** em ISO-8601 UTC (`...Z`). Um registro criado às 14:00 de Brasília sai como `17:00:00.000Z` — isso é "hora local + 3h com Z" e é o valor certo, não um bug.
+
+- A UI deve converter para exibição: `new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })` (ou o fuso da empresa). Nunca exiba a string ISO crua nem remova o `Z`.
+- Teste de regressão (`followup1-assistant`, subteste 6): `created_at`/`updated_at` de conversa, mensagens, listagem e base de conhecimento ficam a menos de 2 min de `Date.now()`.
