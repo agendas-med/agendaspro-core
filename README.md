@@ -7,7 +7,7 @@ Requer Node.js 20+ e Docker. O MariaDB 11.4 fica em `127.0.0.1:3307`, com volume
 3. Execute `npm run db:migrate`. Aplica, em ordem, as migrations versionadas de `sql/migrations` (registradas em `schema_migrations`). Em banco vazio, cria a estrutura; em banco existente, acrescenta os campos e preserva os registros. Pode ser repetido. Faça backup antes de atualizar um banco com dados reais: DDL do MariaDB não tem rollback transacional.
 4. Com `APP_ENCRYPTION_KEY` configurada, execute `npm run db:encrypt-secrets` para cifrar chaves Asaas antigas gravadas em texto puro (idempotente; `--dry-run` só conta).
 5. Opcionalmente, execute `npm run db:seed-demo` para criar uma empresa, cliente, serviço, produto e agendamento locais. As credenciais ficam em `.local-access.md`, ignorado pelo Git.
-6. Execute `npm start`. API: `http://localhost:3001`; `GET /health` é leve (sem banco); `GET /health/deep` checa banco e fila e exige `ADMIN_TOKEN`.
+6. Execute `npm start`. API: `http://localhost:3001`; `GET /health` é leve (sem banco); `GET /health/ready` confirma banco e última migration (503 se não); `GET /health/deep` checa banco e fila e exige `ADMIN_TOKEN`.
 7. No diretório irmão `agendaspro-system`, execute `npm ci` e `npm run dev`. Interface: `http://localhost:8080`. `NUXT_PUBLIC_API_BASE` define a URL da API.
 
 No Windows, depois da configuração inicial, `./scripts/start-local.ps1` sobe o banco, aplica a migração, compila e inicia API/interface em segundo plano. Use `-SkipBuild` para reutilizar uma compilação já validada. Logs ficam em `logs/` e os PIDs iniciados em `.local-processes.json`. As portas 3001 e 8080 precisam estar livres ou já atender este sistema.
@@ -20,11 +20,34 @@ Os status dos atendimentos são `agendado`, `pendente_pagamento`, `iniciado`, `r
 
 Agenda, clientes, estoque, relatórios e pagamentos manuais funcionam sem Asaas, OpenAI ou AWS. Sem configuração S3, imagens são gravadas em `public/uploads`. Com S3, o bucket é privado por padrão: a API devolve `/files/s3/<chave>`, que redireciona para uma URL assinada de 5 minutos (`S3_PUBLIC_READ=true` mantém o modo público legado). Para usar Pix automático, configure a integração sandbox, a conta da empresa e o webhook. Para habilitar o assistente WhatsApp, configure `OPENAI_API_KEY` e a integração de mensagens (`WHATSAPP_INBOUND_TOKEN` para entrada, `WHATSAPP_OUTBOUND_TOKEN` e `WHATSAPP_API_URL` para envio).
 
+## Produção (Heroku Eco)
+
+Um dyno web Eco, sem worker (`Procfile`/`app.json`):
+- a release phase roda `npm run db:migrate` (lock + idempotente; falha aborta o deploy);
+- o web sobe com `node server.js`, em Node 24.x.
+
+Em `NODE_ENV=production`, o boot valida as variáveis e aborta se faltar algo obrigatório; o log mostra só os nomes. O SIGTERM faz desligamento gracioso.
+
+O banco pode vir de `MYSQL_*` ou da URL do add-on (`JAWSDB_MARIA_URL`/`DATABASE_URL`).
+
+Variáveis, go-live das integrações, checklist, runbook, backup, custos e LGPD estão em [`docs/OPERACAO.md`](docs/OPERACAO.md).
+
+A CI (`.github/workflows/ci.yml`) faz o seguinte:
+- sobe o MariaDB 11.4;
+- aplica as migrations duas vezes com usuário não root;
+- roda `npm run test:ci` (suíte serial, sem skips);
+- roda `npm audit --omit=dev`, em modo informativo.
+
 ## Jobs e lembretes (gatilho horário)
 
 Tarefas em segundo plano ficam na tabela `jobs` e são processadas por `POST /internal/jobs/tick` (header `Authorization: Bearer <JOBS_TICK_TOKEN>`). O gatilho é **externo e horário** — por exemplo cron-job.org ou um workflow agendado do GitHub Actions chamando a rota a cada hora —, não a cada 5 minutos: o dyno Eco dorme e não deve depender de cron interno. Cada tick processa em lote por até ~20 s (`JOBS_TICK_BUDGET_MS`); itens não processados voltam para a fila e seguem no próximo tick. Falhas são repetidas com backoff exponencial (até 6 h) e os jobs têm chave de deduplicação.
 
 O lembrete de WhatsApp é janela-based e tolerante a atraso: cada tick enfileira os agendamentos com início entre agora+1 h e agora+24 h 30 min ainda sem lembrete, e o lembrete só é marcado como enviado após sucesso. O que é imediato chega por webhook; qualquer webhook recebido (Asaas, WhatsApp) também drena jobs vencidos de forma não bloqueante, com throttle no banco. `ENABLE_INPROCESS_CRON=true` liga um agendador interno só para desenvolvimento local.
+
+Há três formas de disparar o tick (detalhes em `docs/OPERACAO.md` §3.3):
+- **cron-job.org** (principal): POST com header.
+- **`.github/workflows/jobs-tick.yml`** (reserva): usa os secrets `API_BASE_URL` e `JOBS_TICK_TOKEN`.
+- **`npm run jobs:tick`** (manual): aquece `/health` e chama o tick sem imprimir o token.
 
 ## Webhooks Asaas
 
