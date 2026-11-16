@@ -73,8 +73,9 @@ Liga com `WHATSAPP_CLOUD_ENABLED=true` (sem isso, avisos são pulados com `not_c
 ### Janela de 24h e modelos
 - Dentro de 24h da última mensagem do cliente: texto livre. Fora: só modelo `approved`.
 - Modelos semeados como `pending` (aprovar na Meta e marcar `approved`):
-  `agendamento_lembrete`(4), `agendamento_confirmado`(4), `agendamento_remarcado`(4),
-  `atendimento_retomar`(1), `lead_novo`(4) — idioma `pt_BR`, categoria UTILITY.
+  `agendamento_lembrete`(4), `agendamento_confirmado`(5), `agendamento_remarcado`(5),
+  `atendimento_retomar`(1), `lead_novo`(4) — idioma `pt_BR`, categoria UTILITY. (Follow-up 1: corrigido;
+  confirmado/remarcado têm 5 parâmetros, o 5º é o link de gerenciar o agendamento. Cadastre na Meta com 5.)
 - Lembretes 24h e 2h usam `agendamento_lembrete` fora da janela.
 
 ### Limite mensal e entrega
