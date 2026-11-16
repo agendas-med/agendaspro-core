@@ -29,7 +29,8 @@ const CODED = new Set(['plan_upgrade_required', 'billing_disabled', 'slot_unavai
   // F6 integrações (Instagram / Google Agenda)
   'oauth_state_invalid', 'redirect_uri_not_allowed', 'integration_not_configured', 'integration_not_connected',
   'instagram_reauth_required', 'instagram_rate_limited', 'instagram_unavailable', 'instagram_oauth_failed',
-  'google_calendar_reauth_required', 'google_calendar_unavailable', 'google_calendar_oauth_failed', 'calendar_not_found']);
+  'google_calendar_reauth_required', 'google_calendar_unavailable', 'google_calendar_oauth_failed', 'calendar_not_found',
+  'google_calendar_rate_limited', 'calendar_link_conflict', 'calendar_link_not_found', 'professional_not_found']);
 function respondError(req, res, error) {
   if (error && CODED.has(error.code) && Number(error.status) >= 400) {
     return res.status(Number(error.status)).send({ error: { code: error.code, message: error.message, ...(error.details || {}) } });

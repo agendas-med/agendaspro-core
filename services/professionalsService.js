@@ -222,7 +222,7 @@ const professionalsService = {
   async listBlocks(companyId, { from, to, professional_id: professionalId, include_company_blocks: includeCompany = true } = {}) {
     const params = [companyId];
     let sql = `SELECT id, professional_id, DATE_FORMAT(starts_at, '%Y-%m-%d %H:%i:%s') AS starts_at,
-      DATE_FORMAT(ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at, reason FROM time_blocks WHERE company_id = ?`;
+      DATE_FORMAT(ends_at, '%Y-%m-%d %H:%i:%s') AS ends_at, reason, source FROM time_blocks WHERE company_id = ?`;
     if (professionalId) {
       sql += includeCompany === false ? ' AND professional_id = ?' : ' AND (professional_id = ? OR professional_id IS NULL)';
       params.push(professionalId);
@@ -245,6 +245,11 @@ const professionalsService = {
   },
 
   async deleteBlock(companyId, id) {
+    // F6: bloqueios importados do Google Agenda são geridos pela sincronização (some ao apagar/recusar
+    // o evento no Google ou ao desvincular o calendário); apagar aqui voltaria na próxima sincronização.
+    const [row] = await functions.executeSql('SELECT source FROM time_blocks WHERE id = ? AND company_id = ?', [id, companyId]);
+    if (!row) throw new HttpError(404, 'Bloqueio não encontrado.');
+    if (row.source && row.source !== 'manual') throw new HttpError(409, 'Bloqueio sincronizado do Google Agenda: remova o evento no Google ou desvincule o calendário.');
     const result = await functions.executeSql('DELETE FROM time_blocks WHERE id = ? AND company_id = ?', [id, companyId]);
     if (!result.affectedRows) throw new HttpError(404, 'Bloqueio não encontrado.');
   },

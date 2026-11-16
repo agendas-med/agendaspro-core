@@ -54,6 +54,7 @@ app.use('/public', require('./routes/public'));
 app.use('/webhook/meta', require('./routes/whatsappWebhook'));
 // F6: callbacks da Meta do app do Instagram (signed_request) e push do Google Agenda (headers X-Goog-*).
 app.use('/webhook/instagram', require('./routes/instagramMeta'));
+app.use('/webhook/google-calendar', require('./routes/googleCalendarWebhook'));
 
 // CORS por allowlist (CORS_ORIGINS, separado por vírgula; URL_SITE como fallback).
 const allowedOrigins = (process.env.CORS_ORIGINS || process.env.URL_SITE || '')
@@ -103,6 +104,7 @@ app.use("/public-page", require('./routes/publicPage'));
 app.use("/whatsapp", require('./routes/whatsapp'));
 app.use("/assistant", require('./routes/assistant'));
 app.use("/integrations/instagram", require('./routes/integrationsInstagram'));
+app.use("/integrations/google-calendar", require('./routes/integrationsGoogleCalendar'));
 app.get('/health/deep', require('./middleware/requireToken')('ADMIN_TOKEN'), internalRoute.deepHealth);
 
 // Arquivos estáticos em /static. O prefixo /public é da API pública (F3).

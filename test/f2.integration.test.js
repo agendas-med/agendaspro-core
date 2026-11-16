@@ -171,7 +171,7 @@ test('F2: planos, comissão, profissionais e lembrete 2h no MariaDB isolado', { 
       assert.equal((await B.as('GET', '/time-blocks')).data.length, 0);
       await B.as('DELETE', `/time-blocks/${block.id}`, undefined, 404);
       const listedBlocks = (await A.as('GET', '/time-blocks?from=2027-03-10%2000:00&to=2027-03-11%2000:00')).data;
-      assert.deepEqual(listedBlocks, [{ id: block.id, professional_id: proA.id, starts_at: '2027-03-10 11:00:00', ends_at: '2027-03-10 12:00:00', reason: 'Médico' }]);
+      assert.deepEqual(listedBlocks, [{ id: block.id, professional_id: proA.id, starts_at: '2027-03-10 11:00:00', ends_at: '2027-03-10 12:00:00', reason: 'Médico', source: 'manual' }]);
 
       await A.as('POST', '/appointments', appointment('2027-03-10 08:00:00', { professional_id: proA.id }), 400); // fora do expediente
       await A.as('POST', '/appointments', appointment('2027-03-10 11:30:00', { professional_id: proA.id }), 400); // bloqueio

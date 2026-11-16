@@ -204,3 +204,10 @@ register("instagram_token_refresh", (payload) => require("./instagram/service").
 register("instagram_snapshot", (payload) => require("./instagram/service").snapshotJob(payload));
 registerProducer("instagram_token_refresh", (jobs) => require("./instagram/service").enqueueRefreshes(jobs));
 registerProducer("instagram_snapshot", (jobs) => require("./instagram/service").enqueueSnapshots(jobs));
+
+// F6: Google Agenda (Premium). Reconciliação agendamentos -> eventos e eventos ocupados -> bloqueios;
+// o produtor horário é também o fallback do canal de push e renova o canal antes de expirar.
+register("gcal_push", (payload) => require("./googleCalendar/sync").pushJob(payload));
+register("gcal_pull", (payload) => require("./googleCalendar/sync").pullJob(payload));
+registerProducer("gcal_push", () => require("./googleCalendar/sync").enqueuePushes());
+registerProducer("gcal_pull", () => require("./googleCalendar/sync").enqueuePulls());
