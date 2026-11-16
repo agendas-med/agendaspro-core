@@ -40,14 +40,14 @@ A CI (`.github/workflows/ci.yml`) faz o seguinte:
 
 ## Jobs e lembretes (gatilho horário)
 
-Tarefas em segundo plano ficam na tabela `jobs` e são processadas por `POST /internal/jobs/tick` (header `Authorization: Bearer <JOBS_TICK_TOKEN>`). O gatilho é **externo e horário** — por exemplo cron-job.org ou um workflow agendado do GitHub Actions chamando a rota a cada hora —, não a cada 5 minutos: o dyno Eco dorme e não deve depender de cron interno. Cada tick processa em lote por até ~20 s (`JOBS_TICK_BUDGET_MS`); itens não processados voltam para a fila e seguem no próximo tick. Falhas são repetidas com backoff exponencial (até 6 h) e os jobs têm chave de deduplicação.
+Tarefas em segundo plano ficam na tabela `jobs` e são processadas por `POST /internal/jobs/tick` (header `Authorization: Bearer <JOBS_TICK_TOKEN>`). O gatilho é **horário** (não a cada 5 minutos) e roda fora do web dyno: o dyno Eco dorme e não deve depender de cron interno. O recomendado é o **Heroku Scheduler** (add-on nativo) executando `npm run jobs:run`, que drena a fila direto no banco. Cada tick processa em lote por até ~20 s (`JOBS_TICK_BUDGET_MS`); itens não processados voltam para a fila e seguem no próximo tick. Falhas são repetidas com backoff exponencial (até 6 h) e os jobs têm chave de deduplicação.
 
 O lembrete de WhatsApp é janela-based e tolerante a atraso: cada tick enfileira os agendamentos com início entre agora+1 h e agora+24 h 30 min ainda sem lembrete, e o lembrete só é marcado como enviado após sucesso. O que é imediato chega por webhook; qualquer webhook recebido (Asaas, WhatsApp) também drena jobs vencidos de forma não bloqueante, com throttle no banco. `ENABLE_INPROCESS_CRON=true` liga um agendador interno só para desenvolvimento local.
 
-Há três formas de disparar o tick (detalhes em `docs/OPERACAO.md` §3.3):
-- **cron-job.org** (principal): POST com header.
-- **`.github/workflows/jobs-tick.yml`** (reserva): usa os secrets `API_BASE_URL` e `JOBS_TICK_TOKEN`.
-- **`npm run jobs:tick`** (manual): aquece `/health` e chama o tick sem imprimir o token.
+Formas de disparar o tick (detalhes em `docs/OPERACAO.md` §3.3):
+- **Heroku Scheduler** (principal): comando `npm run jobs:run`, de hora em hora. Não usa HTTP nem `JOBS_TICK_TOKEN`.
+- **`.github/workflows/jobs-tick.yml`** (reserva HTTP): usa os secrets `API_BASE_URL` e `JOBS_TICK_TOKEN`.
+- **`npm run jobs:tick`** (manual via HTTP): aquece `/health` e chama o tick sem imprimir o token.
 
 ## Webhooks Asaas
 

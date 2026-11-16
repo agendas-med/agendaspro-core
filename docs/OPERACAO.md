@@ -85,7 +85,7 @@ O `.env.example` traz a lista completa com comentários. Abaixo estão as que im
 
 | Variável | Padrão | Observação |
 |---|---|---|
-| `JOBS_TICK_BUDGET_MS` | 20000 (máx. 25000) | Tempo de drenagem por tick. Com o cron-job.org (timeout de cerca de 30 s), use **15000**. |
+| `JOBS_TICK_BUDGET_MS` | 20000 (máx. 25000) | Tempo de drenagem por tick. Só vale para o tick por HTTP (timeout de cerca de 30 s): use **15000**. O Scheduler usa `JOBS_RUN_BUDGET_MS` (padrão 25000). |
 | `JOBS_DRAIN_THROTTLE_SEC` / `JOBS_DRAIN_ON_WEBHOOK` | 300 / ligado | Drenagem oportunista nos webhooks. |
 | `TICK_WARM_ATTEMPTS` / `TICK_WARM_DELAY_MS` / `TICK_TIMEOUT_MS` | 6 / 5000 / 60000 | Só para `scripts/jobs-tick.js`. |
 
@@ -200,29 +200,26 @@ O `.env.example` traz a lista completa com comentários. Abaixo estão as que im
 
 Sem o gatilho, lembretes, confirmações, sincronizações e expirações de hold só andam quando chega algum webhook.
 
-**Principal: cron-job.org (gratuito).**
-1. Crie o job com a URL `https://<app>.herokuapp.com/internal/jobs/tick`.
-2. Configure:
-   - método **POST**;
-   - header `Authorization: Bearer <JOBS_TICK_TOKEN>`;
-   - agenda de hora em hora, no minuto 7.
-3. Defina `JOBS_TICK_BUDGET_MS=15000`. O timeout do serviço é de cerca de 30 s e o dyno pode estar dormindo.
-4. Ative a notificação de falha por e-mail.
+**Principal: Heroku Scheduler (add-on nativo, sem serviço externo).**
+O Scheduler sobe um dyno avulso (one-off) a cada hora, roda `npm run jobs:run` e encerra. O script drena a fila direto no banco (`scripts/jobs-run.js`): não passa pelo web dyno, não depende dele estar acordado e não usa `JOBS_TICK_TOKEN`.
+1. Instale o add-on: `heroku addons:create scheduler:standard -a <app>` (o add-on é gratuito; a conta precisa ter forma de pagamento verificada).
+2. Abra o painel: `heroku addons:open scheduler -a <app>` → **Add job**.
+3. Configure:
+   - comando: `npm run jobs:run`;
+   - frequência: **Every hour at :07**;
+   - tamanho do dyno: **Eco** (o tempo do dyno avulso é descontado do pool de horas Eco; cerca de 30 s por execução, ou seja, poucas horas por mês).
+4. Opcional: `JOBS_RUN_BUDGET_MS` (padrão 25000, máximo 120000). Não há timeout de roteador, por isso o orçamento pode ser maior que o do tick por HTTP.
+5. Veja o resultado em `heroku logs --ps scheduler -a <app>`. Uma linha `[jobs:run] ok enqueued=… done=… remaining=…` indica sucesso; o processo sai com código 1 em falha.
 
-**Reserva: GitHub Actions (`.github/workflows/jobs-tick.yml`).**
-1. Em Settings → Secrets → Actions, crie `API_BASE_URL` e `JOBS_TICK_TOKEN`.
-2. O workflow roda no minuto 7 de cada hora e aquece o dyno via `/health`, com retentativas, antes do POST.
+Limitações do Scheduler: a execução pode atrasar alguns minutos e, raramente, ser pulada; não há alerta de falha embutido. Os handlers toleram cerca de 1 h de atraso e os webhooks também drenam jobs vencidos.
 
-Limitações do agendamento do GitHub:
-- execuções podem atrasar ou ser puladas;
-- o agendamento é **desativado após 60 dias sem commits** em repositório público.
-
-Dois ticks no mesmo horário são seguros: a fila usa lock por job e chaves de dedupe.
-
-**UptimeRobot (plano gratuito):** só faz GET. Serve para **monitorar** `GET /health` ou `/health/ready`, não para disparar o tick. Ping a cada 5 min mantém o Eco acordado o mês inteiro, consumindo cerca de 744 h das 1000 h do pool. Use só se não houver outros apps Eco na conta.
+**Reserva (opcional): POST HTTP.** O endpoint `POST /internal/jobs/tick` (header `Authorization: Bearer <JOBS_TICK_TOKEN>`) continua disponível para um gatilho externo (cron-job.org, GitHub Actions em `.github/workflows/jobs-tick.yml`) caso o Scheduler seja desativado. Com gatilho HTTP, use `JOBS_TICK_BUDGET_MS=15000` (timeout de cerca de 30 s). Dois gatilhos no mesmo horário são seguros: a fila usa lock por job e chaves de dedupe.
 
 **Manual ou local:**
 ```sh
+# direto no banco (usa o .env local)
+npm run jobs:run
+# ou via HTTP
 API_BASE_URL=https://<app>.herokuapp.com JOBS_TICK_TOKEN=<token> npm run jobs:tick
 ```
 
@@ -341,7 +338,7 @@ Só aumente `AI_GLOBAL_DAILY_BUDGET_USD` depois de entender o motivo, por exempl
 ### 5.3 Fila de jobs parada
 
 - Ver a fila: `SELECT status, COUNT(*) FROM jobs GROUP BY status;` e `SELECT type, last_error FROM jobs WHERE status='failed' ORDER BY id DESC LIMIT 20;`
-- Confira o histórico do cron-job.org e do GitHub Actions. Um tick manual responde as estatísticas (`npm run jobs:tick`).
+- Confira `heroku logs --ps scheduler -a <app>` (e, se usar, o histórico do GitHub Actions). Um tick manual responde as estatísticas (`npm run jobs:run`).
 - 401 no tick: o token difere entre o Heroku e o gatilho. 503: `JOBS_TICK_TOKEN` não está definida.
 - Jobs `running` com `locked_until` vencido são liberados no próximo tick (`released`).
 
@@ -398,8 +395,7 @@ Valores em 2026-11-16. Os itens *(a verificar)* não foram confirmados na fonte.
 |---|---|---|---|
 | Heroku dyno | Eco | US$ 5 (pool de 1000 h por conta) | 1 dyno 24×7 usa cerca de 744 h. Com o gatilho horário e tráfego diurno, fica bem menos. Dorme após 30 min. O próximo passo é Basic (US$ 7, não dorme). |
 | Banco | JawsDB Leopard | cerca de US$ 10 | Kitefin (grátis, 5 MB) só serve para teste. Alternativa: MariaDB externo gerenciado *(a verificar)*. |
-| Gatilho dos jobs | cron-job.org | grátis | Reserva no GitHub Actions: grátis em repositório público. |
-| Monitor | UptimeRobot Free | grátis | Só GET, intervalo de 5 min. |
+| Gatilho dos jobs | Heroku Scheduler | grátis (o dyno avulso consome o pool de horas Eco) | Reserva HTTP: GitHub Actions ou cron-job.org. |
 | Site | Cloudflare Pages | grátis | Netlify e Vercel também têm plano grátis. O plano Hobby da Vercel proíbe uso comercial: use Pro ou outro provedor. GitHub Pages proíbe SaaS comercial. |
 | Turnstile | Cloudflare | grátis | |
 | Asaas | por transação | sem mensalidade | Tarifas por PIX, boleto e cartão conforme a conta *(a verificar)*. Os planos do AgendasPro cobram 5%/0,5%. |

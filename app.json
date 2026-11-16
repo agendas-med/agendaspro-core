@@ -1,17 +1,18 @@
 {
   "name": "agendaspro-core",
-  "description": "API do AgendasPro (Node + MariaDB). Um web dyno Eco, sem worker; migrations na release phase; jobs por gatilho horário externo (POST /internal/jobs/tick). Ver docs/OPERACAO.md.",
+  "description": "API do AgendasPro (Node + MariaDB). Um web dyno Eco, sem worker; migrations na release phase; jobs por Heroku Scheduler horário (npm run jobs:run). Ver docs/OPERACAO.md.",
   "repository": "https://github.com/saymon-felipe/agendaspro-core",
   "keywords": ["node", "express", "mariadb", "heroku"],
   "stack": "heroku-24",
   "buildpacks": [{ "url": "heroku/nodejs" }],
+  "addons": [{ "plan": "scheduler:standard" }],
   "formation": {
     "web": { "quantity": 1, "size": "eco" }
   },
   "env": {
     "NODE_ENV": { "description": "Sempre production no Heroku.", "value": "production" },
     "JWT_SECRET": { "description": "Segredo HMAC do JWT (32+ caracteres).", "generator": "secret" },
-    "JOBS_TICK_TOKEN": { "description": "Bearer de POST /internal/jobs/tick (o mesmo vai para o cron-job.org/GitHub Actions).", "generator": "secret" },
+    "JOBS_TICK_TOKEN": { "description": "Bearer de POST /internal/jobs/tick (só para gatilho HTTP de reserva, ex.: GitHub Actions; o Heroku Scheduler não usa).", "generator": "secret" },
     "ADMIN_TOKEN": { "description": "Bearer de /health/deep e rotas administrativas.", "generator": "secret" },
     "PUBLIC_BOOKING_TOKEN_SECRET": { "description": "Segredo HMAC do manage_token das reservas públicas.", "generator": "secret" },
     "PUBLIC_CHAT_TOKEN_SECRET": { "description": "Segredo HMAC da sessão do chat público.", "generator": "secret" },

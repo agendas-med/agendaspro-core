@@ -13,6 +13,7 @@
     "test:unit": "node --test test/unit/*.test.js",
     "test:ci": "node --test --test-concurrency=1 test/unit/*.test.js test/*.test.js",
     "jobs:tick": "node scripts/jobs-tick.js",
+    "jobs:run": "node scripts/jobs-run.js",
     "db:encrypt-secrets": "node scripts/encrypt-secrets.js"
   },
   "repository": {

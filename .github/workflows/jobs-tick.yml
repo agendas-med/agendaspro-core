@@ -1,11 +1,11 @@
-# Gatilho horário de POST /internal/jobs/tick (alternativa/backup ao cron-job.org).
+# Gatilho horário de POST /internal/jobs/tick (reserva HTTP; o gatilho principal é o Heroku Scheduler com `npm run jobs:run`).
 # Configure em Settings > Secrets and variables > Actions:
 #   secret  JOBS_TICK_TOKEN  (mesmo valor do Heroku)
 #   secret  API_BASE_URL     (ex.: https://SEU-APP.herokuapp.com; sem barra final)
 # Sem os secrets o job termina sem erro (forks e repositório sem deploy).
 # Limitações do GitHub: o agendamento pode atrasar ou pular execuções em horários de pico e
 # é desativado após 60 dias sem atividade no repositório público. Os handlers toleram ~1 h de
-# atraso e o tick é idempotente, então rodar junto com o cron-job.org é seguro.
+# atraso e o tick é idempotente, então rodar junto com o Heroku Scheduler é seguro.
 name: Jobs tick (horário)
 
 on:
