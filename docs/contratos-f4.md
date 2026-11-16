@@ -122,6 +122,8 @@ reativa temporariamente. O repositório whatsapp-bot fica sem uso: desligar o pr
   nesse meio-tempo, o pendente é descartado. A tentativa que falhou fica como mensagem `failed` no histórico.
 - Conversa pertence a uma empresa por vez (trocar de empresa via slug).
 - Agendamento pelo bot: só números BR; listas com até 10 itens.
-- Payload do job guarda o texto da mensagem (dado pessoal; limpar jobs antigos).
+- ~~Payload do job guarda o texto da mensagem~~ Resolvido no follow-up 1: ao terminar (`done` ou `failed`
+  definitivo) o payload de `whatsapp_inbound` vira `{"scrubbed":true}`; a migração 014 limpa os antigos.
+  Enquanto pendente/em retry o payload continua lá (necessário para reprocessar).
 - Remarcação feita pelo bot não dispara o modelo `agendamento_remarcado` (a resposta já vai na conversa).
 - "Hoje" do bot usa o fuso padrão (`APP_TIMEZONE`), não um fuso por empresa.

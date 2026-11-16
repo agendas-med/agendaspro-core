@@ -509,6 +509,18 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       await tick();
       assert.equal(sent.slice(after).filter(m => m.body.to === waRetry).length, 0);
     });
+
+    await t.test('follow-up 1: payload de job do WhatsApp terminado não guarda o texto', async () => {
+      const leaks = await sql("SELECT COUNT(*) AS n FROM jobs WHERE type = 'whatsapp_inbound' AND status IN ('done','failed') AND payload LIKE '%5511988880%'");
+      assert.equal(Number(leaks[0].n), 0, 'done/failed sem telefone nem texto');
+      const done = await sql("SELECT payload FROM jobs WHERE type = 'whatsapp_inbound' AND status = 'done'");
+      assert.ok(done.length > 0 && done.every(j => j.payload === '{"scrubbed":true}'));
+      // Outros tipos não mudam (ex.: lead_notify guarda só o id).
+      await jobs.enqueue('teste_sem_handler', { keep: 1 }, { dedupeKey: `keep:${process.pid}`, maxAttempts: 1 });
+      await tick();
+      const [other] = await sql('SELECT status, payload FROM jobs WHERE dedupe_key = ?', [`keep:${process.pid}`]);
+      assert.deepEqual([other.status, JSON.parse(other.payload)], ['failed', { keep: 1 }]);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));

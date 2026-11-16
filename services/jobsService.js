@@ -47,14 +47,20 @@ async function claim(limit) {
   return functions.executeSql(`SELECT id, type, payload, attempts, max_attempts FROM jobs WHERE lock_token = ? ORDER BY due_at, id`, [lockToken]);
 }
 
+// Follow-up 1 (LGPD): tipos cujo payload carrega texto/dados da mensagem têm o payload apagado ao
+// terminar (done ou failed definitivo). A linha fica (dedupe_key, auditoria), sem o conteúdo.
+const SCRUB_TYPES = new Set(["whatsapp_inbound"]);
+const SCRUBBED = '{"scrubbed":true}';
+const scrubbed = job => (SCRUB_TYPES.has(job.type) ? SCRUBBED : null);
+
 async function complete(job) {
-  await functions.executeSql(`UPDATE jobs SET status = 'done', lock_token = NULL, locked_until = NULL, last_error = NULL WHERE id = ?`, [job.id]);
+  await functions.executeSql(`UPDATE jobs SET status = 'done', lock_token = NULL, locked_until = NULL, last_error = NULL, payload = COALESCE(?, payload) WHERE id = ?`, [scrubbed(job), job.id]);
 }
 
 async function failOrRetry(job, error) {
   const message = String(error?.message || error).slice(0, 500);
   if (job.attempts >= job.max_attempts) {
-    await functions.executeSql(`UPDATE jobs SET status = 'failed', lock_token = NULL, locked_until = NULL, last_error = ? WHERE id = ?`, [message, job.id]);
+    await functions.executeSql(`UPDATE jobs SET status = 'failed', lock_token = NULL, locked_until = NULL, last_error = ?, payload = COALESCE(?, payload) WHERE id = ?`, [message, scrubbed(job), job.id]);
     return "failed";
   }
   await functions.executeSql(
@@ -173,7 +179,7 @@ async function runNow(dedupeKey) {
   }
 }
 
-module.exports = { register, registerProducer, enqueue, claim, tick, drainSoon, runNow, backoffSeconds, _handlers: handlers, _producers: producers };
+module.exports = { register, registerProducer, enqueue, claim, tick, drainSoon, runNow, backoffSeconds, SCRUB_TYPES, _handlers: handlers, _producers: producers };
 
 // Registro padrão.
 const notificationService = require("./notificationService");
