@@ -76,24 +76,45 @@ async function runFile(query, file) {
   for (const statement of splitStatements(fs.readFileSync(file, 'utf8'))) await query(statement);
 }
 
-// Banco antigo e parcial (ex.: homologação criada por scripts anteriores): cria só as tabelas do
-// baseline que não existem. Nunca derruba nem altera tabela existente; views ficam por conta de
-// appointment-status-view.sql. FKs entre tabelas novas exigem a checagem desligada nesta conexão.
+// Banco antigo e parcial (ex.: homologação criada por scripts anteriores): completa o que o baseline
+// descreve e ainda não existe. Cria tabelas ausentes e adiciona colunas ausentes em tabelas
+// existentes. Nunca derruba nem altera tabela ou coluna existente; índices e FKs ficam com as
+// migrations seguintes (idempotentes); views ficam por conta de appointment-status-view.sql.
+// FKs entre tabelas novas exigem a checagem desligada nesta conexão.
+function baselineColumns(createStatement) {
+  const columns = [];
+  for (const line of createStatement.split('\n').slice(1)) {
+    const match = /^\s*`([^`]+)`\s+(.+?),?\s*$/.exec(line);
+    if (match && !/AUTO_INCREMENT/i.test(match[2])) columns.push({ name: match[1], definition: match[2] });
+  }
+  return columns;
+}
+
 async function createMissingBaselineTables(query, file) {
   const existing = new Set((await query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")).map(row => String(Object.values(row)[0]).toLowerCase()));
-  const created = [];
+  const changes = [];
   await query('SET FOREIGN_KEY_CHECKS = 0');
   try {
     for (const statement of splitStatements(fs.readFileSync(file, 'utf8'))) {
       const match = /^CREATE TABLE\s+`([^`]+)`/i.exec(statement);
-      if (!match || existing.has(match[1].toLowerCase())) continue;
-      await query(statement);
-      created.push(match[1]);
+      if (!match) continue;
+      const table = match[1];
+      if (!existing.has(table.toLowerCase())) {
+        await query(statement);
+        changes.push(table);
+        continue;
+      }
+      const have = new Set((await query('SELECT column_name AS name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?', [table])).map(row => String(row.name).toLowerCase()));
+      for (const column of baselineColumns(statement)) {
+        if (have.has(column.name.toLowerCase())) continue;
+        await query(`ALTER TABLE \`${table}\` ADD COLUMN \`${column.name}\` ${column.definition}`);
+        changes.push(`${table}.${column.name}`);
+      }
     }
   } finally {
     await query('SET FOREIGN_KEY_CHECKS = 1');
   }
-  return created;
+  return changes;
 }
 
 async function legacyRepair(query) {
@@ -169,7 +190,7 @@ async function migrate({ log = console.log } = {}) {
     // tentativa depois de uma falha que já tinha registrado o baseline.
     if (!applied.has(LEGACY_VERSION) && existingTables) {
       const created = await createMissingBaselineTables(query, baseline.file);
-      if (created.length) log(`Tabelas do baseline ausentes criadas: ${created.join(', ')}`);
+      if (created.length) log(`Baseline completado (tabelas/colunas criadas): ${created.join(', ')}`);
     }
     await legacyRepair(query);
     for (const migration of rest) {
