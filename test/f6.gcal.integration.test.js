@@ -15,6 +15,13 @@ test('F6: Google Agenda (OAuth+PKCE, push idempotente, bloqueios por syncToken, 
   const admin = mysql.createConnection({ host: process.env.MYSQL_HOST, port: process.env.MYSQL_PORT, user: 'root', password: process.env.MYSQL_ROOT_PASSWORD });
   const adminQuery = promisify(admin.query).bind(admin);
   let server, pool, stub;
+  // Captura logs do processo para provar que tokens não vazam em console.*.
+  const logs = [];
+  const original = {};
+  for (const level of ['log', 'info', 'warn', 'error', 'debug']) {
+    original[level] = console[level];
+    console[level] = (...args) => { logs.push(args.map(a => (a instanceof Error ? `${a.message}\n${a.stack}` : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')); };
+  }
   try {
     await adminQuery('CREATE DATABASE ?? CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci', [database]);
 
@@ -389,7 +396,26 @@ test('F6: Google Agenda (OAuth+PKCE, push idempotente, bloqueios por syncToken, 
       assert.equal(st.links.length, 2);
     });
 
-    await t.test('desconectar (LGPD): para canal, apaga calendário do app (opcional), revoga e apaga tudo local', async () => {
+    await t.test('downgrade para Free: pull apaga bloqueios importados e zera syncToken; push não escreve; rotas Premium = 402', async () => {
+      const googleBlocks = async () => (await sql("SELECT COUNT(*) AS n FROM time_blocks WHERE company_id = ? AND source = 'google'", [B.companyId]))[0].n;
+      assert.ok(await googleBlocks() > 0, 'pré-condição: há bloqueios importados');
+      await sql('DELETE FROM subscription_invoices WHERE company_id = ?', [B.companyId]);
+      await sql('DELETE FROM company_subscriptions WHERE company_id = ?', [B.companyId]);
+      assert.deepEqual(await sync.pullJob({ link_id: busyLink.id }), { skipped: 'plan' });
+      assert.equal(await googleBlocks(), 0, 'bloqueios importados apagados');
+      assert.equal((await sql('SELECT sync_token FROM google_calendar_links WHERE id = ?', [busyLink.id]))[0].sync_token, null);
+      await sql('UPDATE appointments SET duration = 50 WHERE id = ?', [ap1]);
+      const before = writes();
+      assert.deepEqual(await sync.pushJob({ company_id: B.companyId }), { skipped: 'plan' });
+      assert.equal(writes(), before, 'nenhuma escrita no Google sem o plano');
+      assert.equal((await B.as('POST', `${GC}/links`, { role: 'busy', calendar_id: 'feriados@example.test', all_company: true }, 402)).error.code, 'plan_upgrade_required');
+      assert.equal((await B.as('POST', `${GC}/sync`, {}, 402)).error.code, 'plan_upgrade_required');
+      assert.equal((await B.as('GET', `${GC}/status`)).data.connected, true, 'conexão preservada até desconectar');
+    });
+
+    await t.test('desconectar (LGPD, já no Free): para canal, apaga calendário do app (opcional), revoga e apaga tudo local', async () => {
+      assert.ok((await sql('SELECT COUNT(*) AS n FROM google_calendar_links WHERE company_id = ?', [B.companyId]))[0].n > 0, 'pré-condição: há vínculos');
+      assert.ok((await sql('SELECT COUNT(*) AS n FROM google_calendar_events WHERE company_id = ?', [B.companyId]))[0].n > 0, 'pré-condição: há mapeamentos');
       await sql("INSERT INTO time_blocks (company_id, starts_at, ends_at, reason) VALUES (?, NOW() + INTERVAL 5 DAY, NOW() + INTERVAL 5 DAY + INTERVAL 1 HOUR, 'manual')", [B.companyId]);
       const cal = await appCal();
       const rt = decrypt((await account(B.companyId)).refresh_token_enc);
@@ -415,8 +441,12 @@ test('F6: Google Agenda (OAuth+PKCE, push idempotente, bloqueios por syncToken, 
       for (const token of [...g.access, ...g.revoked]) assert.ok(!all.includes(token), 'token vazou numa resposta');
       assert.ok(!all.includes(process.env.GOOGLE_CALENDAR_CLIENT_SECRET));
       assert.ok(!/refresh_token|access_token|code_verifier/.test(all));
+      const logged = logs.join('\n');
+      for (const token of [...g.access, ...g.revoked]) assert.ok(!logged.includes(token), 'token vazou num log');
+      assert.ok(!logged.includes(process.env.GOOGLE_CALENDAR_CLIENT_SECRET), 'client secret vazou num log');
     });
   } finally {
+    Object.assign(console, original);
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));
     if (pool) await new Promise(resolve => pool.end(() => resolve()));

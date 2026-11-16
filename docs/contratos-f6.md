@@ -219,7 +219,8 @@ link    = {id, role: 'push'|'busy', professional_id|null, calendar_id, calendar_
   - Os nomes e a disponibilidade das métricas de insights na versão `INSTAGRAM_GRAPH_VERSION` (padrão `v27.0`) não foram verificados.
   - O snapshot cobre as últimas 24 h, não o dia calendário anterior.
 - **Google:**
-  - Não foi confirmado que `calendar.events.freebusy` permite `events.list` e `events.watch` (o design depende disso). Se não permitir, ajuste `GOOGLE_CALENDAR_SCOPES`, por exemplo para `calendar.events.readonly`, e documente a justificativa na verificação.
+  - A referência da Calendar API (seção Authorization de `events.list` e `events.watch`, consultada em 2026-11) lista `calendar.events.freebusy` entre os escopos aceitos pelos dois métodos.
+  - A documentação **não diz quais campos** voltam com esse escopo. Se vierem só início e fim, a importação fica conservadora: eventos livres (`transparency`) e recusados (`attendees`) passam a bloquear a agenda, e a marca própria (`extendedProperties`) não é lida. O anti-eco continua garantido por dois mecanismos: o vínculo busy não pode apontar para o calendário de destino (409), e os ids exportados (`google_calendar_events`) são ignorados. Confira com uma conta real. Se esses bloqueios a mais incomodarem, use `GOOGLE_CALENDAR_SCOPES` com `calendar.events.readonly` e justifique na verificação.
   - Também não foram verificados com o Google real:
     - a presença de `accessRole` em calendários criados pelo app;
     - o comportamento do `syncToken` com `timeMin`;
