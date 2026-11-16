@@ -23,7 +23,9 @@ const CODED = new Set(['plan_upgrade_required', 'billing_disabled', 'slot_unavai
   'professional_user_taken',
   // F5-core-B assistente
   'assistant_disabled', 'rate_limited', 'assistant_budget_exceeded', 'assistant_forbidden', 'assistant_tool_error', 'assistant_actions_disabled',
-  'action_not_found', 'invalid_confirm_token', 'action_expired', 'action_already_processed', 'action_failed']);
+  'action_not_found', 'invalid_confirm_token', 'action_expired', 'action_already_processed', 'action_failed',
+  // Follow-up 1 (assistente: base de conhecimento)
+  'knowledge_not_found', 'knowledge_limit_reached']);
 function respondError(req, res, error) {
   if (error && CODED.has(error.code) && Number(error.status) >= 400) {
     return res.status(Number(error.status)).send({ error: { code: error.code, message: error.message, ...(error.details || {}) } });

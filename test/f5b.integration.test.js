@@ -261,7 +261,7 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       await oa.expect(200, 'POST', `/assistant/actions/${p2.action_id}/reject`);
       assert.equal(errCode(await oa.call('POST', `/assistant/actions/${p2.action_id}/confirm`, { confirm_token: p2.confirm_token })), 'action_already_processed');
       assert.equal((await sql("SELECT COUNT(*) AS n FROM appointments WHERE company_id = ? AND canceled = 1", [A]))[0].n, 0);
-      assert.equal(errCode(await oa.call('POST', '/assistant/actions/zzzz/confirm', { confirm_token: 'x'.repeat(20) })), 'not_found');
+      assert.equal(errCode(await oa.call('POST', '/assistant/actions/zzzz/confirm', { confirm_token: 'x'.repeat(20) })), 'action_not_found'); // follow-up 1: era 'not_found'
     });
 
     await t.test('RBAC: membro não propõe nem confirma ação de admin; ação de membro funciona', async () => {

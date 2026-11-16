@@ -258,6 +258,34 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
         assert.equal(errCode(await oa.call('POST', `/assistant/actions/${p2.action_id}/token`)), 'assistant_actions_disabled');
       } finally { process.env.ASSISTANT_TOKEN_SECRET = saved; }
     });
+    await t.test('5: erros com código (KB, 403 admin_required, 404 por recurso)', async () => {
+      const shape = r => [r.status, errCode(r)];
+      for (const [method, path, body] of [['GET', '/assistant/knowledge'], ['POST', '/assistant/knowledge', { kind: 'faq', title: 'x', content: 'y' }],
+        ['PUT', '/assistant/knowledge/1', { kind: 'faq', title: 'x', content: 'y' }], ['PATCH', '/assistant/knowledge/1', { active: false }], ['DELETE', '/assistant/knowledge/1']]) {
+        assert.deepEqual(shape(await ma.call(method, path, body)), [403, 'admin_required'], `${method} ${path}`);
+      }
+      const bad = await oa.call('POST', '/assistant/knowledge', { kind: 'outro', title: '' });
+      assert.deepEqual(shape(bad), [400, 'validation_error']);
+      assert.ok(bad.data.error.message && bad.data.error.fields.some(f => f.field === 'kind'));
+      assert.ok(Array.isArray(bad.data.errors) && bad.data.errors.length >= 2, 'errors[] do F5-B mantido');
+      assert.deepEqual(shape(await oa.call('PUT', '/assistant/knowledge/999999', { kind: 'faq', title: 'x', content: 'y' })), [404, 'knowledge_not_found']);
+      assert.deepEqual(shape(await oa.call('DELETE', '/assistant/knowledge/999999')), [404, 'knowledge_not_found']);
+      assert.deepEqual(shape(await oa.call('PATCH', '/assistant/knowledge/abc', { active: true })), [404, 'knowledge_not_found']);
+      const own = (await oa.expect(201, 'POST', '/assistant/knowledge', { kind: 'faq', title: '  Com espaços  ', content: 'z' })).data.data;
+      assert.equal(own.title, 'Com espaços', 'trim aplicado');
+      assert.deepEqual(shape(await ob.call('DELETE', `/assistant/knowledge/${own.id}`)), [404, 'knowledge_not_found'], 'outra empresa');
+
+      await sql("INSERT INTO assistant_knowledge (company_id, kind, title, content, created_by) SELECT ?, 'faq', CONCAT('t', seq), 'c', ? FROM seq_1_to_500", [B, ownerB.id]);
+      try {
+        const full = await ob.call('POST', '/assistant/knowledge', { kind: 'faq', title: 'x', content: 'y' });
+        assert.deepEqual([...shape(full), full.data.error.limit], [409, 'knowledge_limit_reached', 500]);
+      } finally { await sql('DELETE FROM assistant_knowledge WHERE company_id = ?', [B]); }
+
+      assert.deepEqual(shape(await oa.call('GET', '/assistant/conversations/nao-e-id')), [404, 'conversation_not_found']);
+      assert.deepEqual(shape(await say(oa, 'nao-e-id', 'oi')), [404, 'conversation_not_found']);
+      assert.deepEqual(shape(await oa.call('POST', '/assistant/actions/zz/confirm', { confirm_token: 'x'.repeat(20) })), [404, 'action_not_found']);
+      assert.deepEqual(shape(await oa.call('POST', '/assistant/actions/zz/reject')), [404, 'action_not_found']);
+    });
 
   } finally {
     require('../services/ai/provider').setProvider(null);

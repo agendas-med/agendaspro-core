@@ -152,3 +152,21 @@ Problema: `GET /assistant/conversations/:id` lista `pending_actions` **sem** tok
 - Erros: 410 `action_expired`, 409 `action_already_processed` (`details.status`), 503 `assistant_actions_disabled` (sem `ASSISTANT_TOKEN_SECRET`), 404 `action_not_found`.
 - Auditoria: evento `action_token_reissued` (sem o token).
 - Compatibilidade: tokens de versão 0 (todas as propostas, como no F5-B) têm exatamente o mesmo HMAC de antes; a versão só entra no HMAC quando > 0. Confirm segue `POST /assistant/actions/:id/confirm { confirm_token }`.
+
+## A5. Erros com código (base de conhecimento, RBAC, 404 por recurso)
+
+Todas as respostas abaixo saem no formato `{ error: { code, message, ... } }`:
+
+| Rota | Antes (F5-B) | Agora |
+|---|---|---|
+| `/assistant/knowledge*` por não admin | 401 `{message}` | **403** `admin_required` |
+| `PUT/PATCH/DELETE /assistant/knowledge/:id` inexistente ou de outra empresa | 404 `{message}` | 404 `knowledge_not_found` |
+| `/assistant/knowledge/:id` com id não numérico | 400 `{message:'Id inválido.'}` | 404 `knowledge_not_found` |
+| corpo inválido em `POST/PUT/PATCH /assistant/knowledge*` | 400 `{errors:[{message,field}]}` | 400 `{ error: { code: 'validation_error', message, fields: [{message,field}] }, errors: [...] }` (o `errors[]` antigo continua) |
+| `POST /assistant/knowledge` com 500 itens | 400 `{message}` | **409** `knowledge_limit_reached` (`error.limit = 500`) |
+| `/assistant/conversations/:id*` com id malformado | 404 `not_found` | 404 `conversation_not_found` |
+| `/assistant/actions/:id/*` com id malformado | 404 `not_found` | 404 `action_not_found` |
+
+- A UI que classifica só por status (como `classifyKnowledgeError`) segue funcionando: 403 cai em "forbidden", 404 em "not_found", 400 em "validation", 409 em "limit", e agora há `error.message` para exibir.
+- Os campos de texto da KB passam a ser gravados já com `trim`.
+- O `requireAdmin` compartilhado (401) não mudou nas outras rotas do core; só a base de conhecimento usa a guarda nova.
