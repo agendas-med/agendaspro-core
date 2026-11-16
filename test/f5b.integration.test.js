@@ -34,7 +34,7 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       PUBLIC_BOOKING_TOKEN_SECRET: secret(), PUBLIC_CHAT_TOKEN_SECRET: secret(),
       URL_SITE: 'https://app.example.test', WHATSAPP_CLOUD_ENABLED: 'false', PUBLIC_CHAT_ENABLED: 'false',
       OPENAI_API_KEY: `sk-test-${secret()}`, OPENAI_EMBEDDING_MODEL: 'embedding-test',
-      ASSISTANT_ENABLED: 'true', ASSISTANT_TOKEN_SECRET: secret(), ASSISTANT_RAG_ENABLED: 'true',
+      ASSISTANT_ENABLED: 'true', ASSISTANT_TOKEN_SECRET: secret(), ASSISTANT_RAG_ENABLED: 'true', ASSISTANT_RAG_INCLUDE_NOTES: 'true',
       ASSISTANT_RATE_PER_MIN: '1000', ASSISTANT_RAG_MIN_SCORE: '0.3',
     });
     for (const key of ['JWT_KEY', 'APP_TIMEZONE', 'OPENAI_MODEL_DEFAULT', 'AI_GLOBAL_DAILY_TOKENS', 'ASSISTANT_COMPANY_DAILY_TOKENS']) delete process.env[key];
@@ -488,6 +488,28 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       await privacy.deleteCustomer(A, pedro.id);
       assert.equal(await noteCount([pedro.appt]), 0);
       assert.doesNotMatch((await sql('SELECT content FROM assistant_messages WHERE company_id = ?', [A])).map(m => m.content).join('\n'), /Pedro Henrique|91234-5678/);
+    });
+
+    await t.test('follow-up 1: ASSISTANT_RAG_INCLUDE_NOTES=false não envia nem usa observações', async () => {
+      const id = idOf(await customersService.create(A, 'Carla Notas', null, null, '11955554444', null, null)) || (await sql("SELECT id FROM customers WHERE company_id = ? AND name = 'Carla Notas'", [A]))[0].id;
+      await appointmentsService.create(A, id, 'Carla Notas', `${today} 21:00:00`, 30, 'Alergia grave a lidocaína registrada pela equipe', svc(serviceA, 'Limpeza', 40), 'agendado', {}, {});
+      await rag.reconcile(A);
+      const notes = async () => (await sql("SELECT COUNT(*) AS n FROM assistant_embeddings WHERE company_id = ? AND source_type = 'appointment_note'", [A]))[0].n;
+      assert.ok(await notes() >= 1, 'vetor de observação pré-existente');
+      process.env.ASSISTANT_RAG_INCLUDE_NOTES = 'false';
+      try {
+        const embedded = [];
+        const origEmbed = provider.embed;
+        provider.embed = async req => { embedded.push(...req.input); return origEmbed(req); };
+        try {
+          const hits = await rag.search(A, 'alergia grave lidocaína equipe');
+          assert.ok(hits.every(h => h.source_type !== 'appointment_note'), 'busca ignora vetor antigo');
+          await rag.reconcile(A);
+        } finally { provider.embed = origEmbed; }
+        assert.equal(await notes(), 0, 'reconcile remove vetores de observação');
+        assert.ok(embedded.every(text => !/lidocaína/.test(text) || /alergia grave lidocaína equipe/.test(text)), 'observação não vai ao provedor');
+        assert.ok(!(await rag.sources(A)).some(s => s.source_type === 'appointment_note'));
+      } finally { process.env.ASSISTANT_RAG_INCLUDE_NOTES = 'true'; }
     });
 
     await t.test('rate limit (429 + Retry-After)', async () => {

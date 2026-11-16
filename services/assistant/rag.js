@@ -87,10 +87,11 @@ function chunks(text, max) {
 
 async function sources(companyId) {
   const q = functions.executeSql.bind(functions);
+  const includeNotes = config().ragIncludeNotes;
   const [knowledge, services, notes, company] = await Promise.all([
     q('SELECT id, kind, title, content FROM assistant_knowledge WHERE company_id = ? ORDER BY id LIMIT 500', [companyId]),
     q('SELECT id, name, observations, public_description FROM services WHERE company_id = ? LIMIT 500', [companyId]),
-    q(`SELECT a.id, a.observations, DATE_FORMAT(a.date, '%Y-%m-%d') AS day FROM appointments a JOIN customers c ON c.id = a.customer_id AND c.company_id = a.company_id
+    !includeNotes ? [] : q(`SELECT a.id, a.observations, DATE_FORMAT(a.date, '%Y-%m-%d') AS day FROM appointments a JOIN customers c ON c.id = a.customer_id AND c.company_id = a.company_id
        WHERE a.company_id = ? AND a.observations IS NOT NULL AND a.observations <> '' AND c.anonymized_at IS NULL ORDER BY a.date DESC LIMIT 500`, [companyId]),
     q('SELECT id, public_description, public_hours FROM companies WHERE id = ?', [companyId]),
   ]);
@@ -177,7 +178,9 @@ async function search(companyId, query) {
   if (!cfg.ragEnabled) return [];
   const out = await embed(companyId, [String(query).slice(0, 500)], 'assistant_rag_query');
   if (!out) return [];
-  const hits = await store.search(companyId, out.vectors[0], { model: out.model, topK: cfg.ragTopK, minScore: cfg.ragMinScore });
+  let hits = await store.search(companyId, out.vectors[0], { model: out.model, topK: cfg.ragTopK + (cfg.ragIncludeNotes ? 0 : cfg.ragTopK), minScore: cfg.ragMinScore });
+  // Flag desligada: vetores de observação antigos (ainda não reconciliados) nunca voltam no contexto.
+  if (!cfg.ragIncludeNotes) hits = hits.filter(h => h.source_type !== 'appointment_note').slice(0, cfg.ragTopK);
   return hits.map(h => ({ source_type: h.source_type, source_id: h.source_id, score: Math.round(h.score * 1000) / 1000, text: String(h.content).slice(0, cfg.ragMaxChunkChars) }));
 }
 

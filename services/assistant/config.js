@@ -21,6 +21,8 @@ function config() {
     historyWindow: num(env.ASSISTANT_HISTORY_WINDOW, 6, { min: 0, max: 20 }),
     lowStockThreshold: num(env.ASSISTANT_LOW_STOCK_THRESHOLD, 3),
     ragEnabled: env.ASSISTANT_RAG_ENABLED === 'true',
+    // Observações de agendamento (dado de saúde/pessoal) só vão ao provedor de embeddings com opt-in.
+    ragIncludeNotes: env.ASSISTANT_RAG_INCLUDE_NOTES === 'true',
     ragTopK: num(env.ASSISTANT_RAG_TOP_K, 4, { min: 1, max: 10 }),
     ragMinScore: num(env.ASSISTANT_RAG_MIN_SCORE, 0.25, { min: -1, max: 1 }),
     ragMaxChunksPerCompany: num(env.ASSISTANT_RAG_MAX_CHUNKS, 2000, { min: 10 }),

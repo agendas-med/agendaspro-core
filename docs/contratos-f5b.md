@@ -173,7 +173,7 @@ Os embeddings usam o mesmo orçamento global e da empresa, além do mesmo circui
   - `assistant_knowledge`;
   - observações e `public_description` dos serviços;
   - `public_description` e `public_hours` da empresa;
-  - observações de agendamentos, excluindo clientes anonimizados (até 500).
+  - observações de agendamentos, excluindo clientes anonimizados (até 500), **só com `ASSISTANT_RAG_INCLUDE_NOTES=true`** (padrão `false`, follow-up 1). Com a flag desligada o reconcile apaga os vetores de observação já gravados e a busca nunca os devolve.
 
   Dados estruturados (agenda, financeiro, estoque) **não** entram no RAG: são consultados pelas ferramentas.
 - **Indexação incremental** pelo hash do conteúdo de cada chunk (no máximo 5 chunks por fonte e `ASSISTANT_RAG_MAX_CHUNKS` por empresa):
@@ -201,5 +201,5 @@ Os embeddings usam o mesmo orçamento global e da empresa, além do mesmo circui
 ## Limitações conhecidas
 
 - Anonimizar/excluir um cliente (follow-up 1) remove o **nome completo cadastrado**, telefone, CPF e e-mail dele de `assistant_messages`, títulos/resumos de conversa, ações (JSON inteiro trocado por `{"redacted":true}`; pendentes expiram) e auditoria da mesma empresa. Primeiro nome isolado, apelidos e grafias diferentes **permanecem**; nomes com menos de 5 letras e números com menos de 8 dígitos não são buscados.
-- As observações dos agendamentos são enviadas ao provedor de embeddings (OpenAI) quando o RAG está ligado.
+- Com `ASSISTANT_RAG_INCLUDE_NOTES=true`, as observações dos agendamentos são enviadas ao provedor de embeddings (OpenAI). O padrão é não enviar.
 - Não há SSE.
