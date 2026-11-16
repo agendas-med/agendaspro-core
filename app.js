@@ -65,6 +65,8 @@ app.use(cors({
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Selected-company'],
+    // O front (outra origem) lê Retry-After dos 429 (login, convite, assistente).
+    exposedHeaders: ['Retry-After'],
     maxAge: 600,
 }));
 

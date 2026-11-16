@@ -25,6 +25,7 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
       ADMIN_TOKEN: secret(), JOBS_TICK_TOKEN: secret(), ASAAS_WEBHOOK_TOKEN: secret(),
       WHATSAPP_INBOUND_TOKEN: secret(), WHATSAPP_OUTBOUND_TOKEN: secret(),
       ASAAS_SUBSCRIPTIONS_ENABLED: 'false', WHATSAPP_CLOUD_ENABLED: 'false', PUBLIC_API_URL: '',
+      CORS_ORIGINS: 'http://localhost:5173', PUBLIC_CORS_ORIGINS: 'http://localhost:5173',
     });
     delete process.env.JWT_KEY;
     delete process.env.APP_TIMEZONE;
@@ -264,6 +265,15 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
       const listed = (await A.as('GET', '/companies/services')).returnObj.find(s => s.id === id);
       assert.equal(listed.value, 19.9);
       assert.equal(typeof listed.cost, 'number');
+    });
+
+    await t.test('D6: Retry-After exposto no CORS da API autenticada e da pública', async () => {
+      const origin = { Origin: 'http://localhost:5173' };
+      const api = await call('GET', '/professionals/me', { auth: A.token, company: A.companyId, headers: origin });
+      assert.equal(api.status, 200);
+      assert.match(api.headers.get('access-control-expose-headers') || '', /Retry-After/i);
+      const pub = await call('GET', '/public/companies/nao-existe', { headers: origin });
+      assert.match(pub.headers.get('access-control-expose-headers') || '', /Retry-After/i);
     });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));

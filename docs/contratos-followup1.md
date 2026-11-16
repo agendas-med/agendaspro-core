@@ -80,3 +80,10 @@ O uso da quota é a soma de **membros** e **convites pendentes não vencidos**. 
 - O pool (`mysql.js`) converte `DECIMAL` em `Number`, então os campos da API continuam numéricos.
 - `SUM` e `AVG` sobre essas colunas também voltam como número, não string.
 - **Mudança visível:** `sales_products.unit_price` já era `DECIMAL` e chegava como **string** (`"10.50"`). Agora chega como **número** (`10.5`) em todas as respostas que o expõem, por exemplo o `value` dos itens de venda.
+## D6. `Retry-After` legível pelo front
+
+- `/public/*` já expunha `Access-Control-Expose-Headers: Retry-After` (F3/F5-A).
+- Agora o CORS global da API autenticada também expõe esse header. Assim, o front, que roda em outra origem, consegue ler o `Retry-After` dos 429 de:
+  - login, cadastro, reset e convite;
+  - assistente.
+- No assistente, o corpo continua trazendo `error.retry_after`. Nada foi removido.
