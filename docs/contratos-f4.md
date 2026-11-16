@@ -116,7 +116,10 @@ reativa temporariamente. O repositório whatsapp-bot fica sem uso: desligar o pr
    em `whatsapp_templates`; sem a sync, `UPDATE whatsapp_templates SET status='approved'` manual.
 
 ### Riscos conhecidos
-- Resposta do bot que falhou não é reenviada em retry (o dedupe por wamid barra o reprocessamento).
+- ~~Resposta do bot que falhou não é reenviada em retry~~ Resolvido no follow-up 1: as respostas ficam em
+  `whatsapp_messages.pending_replies` (migração 013) da mensagem recebida até serem entregues, uma a uma; se o envio
+  falha o job tenta de novo e reenvia só o restante (não reprocessa a máquina de estados). Se o contato pediu PARAR
+  nesse meio-tempo, o pendente é descartado. A tentativa que falhou fica como mensagem `failed` no histórico.
 - Conversa pertence a uma empresa por vez (trocar de empresa via slug).
 - Agendamento pelo bot: só números BR; listas com até 10 itens.
 - Payload do job guarda o texto da mensagem (dado pessoal; limpar jobs antigos).

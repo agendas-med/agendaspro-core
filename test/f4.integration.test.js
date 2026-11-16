@@ -483,6 +483,32 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       assert.equal((await A.as('POST', `/whatsapp/conversations/${fu.stop}/assume`, { force: true })).data.assigned_user_name, 'Dono a');
       await A.as('POST', `/whatsapp/conversations/${fu.stop}/assume`, { force: 'x' }, 400);
     });
+
+    await t.test('follow-up 1: resposta do bot que falhou é reenviada no retry do job', async () => {
+      const waRetry = '5511988880014';
+      const id = wamid();
+      graphStatus = 500;
+      const before = sent.length;
+      assert.equal((await postMeta(messagePayload(waRetry, { text: `Agendar ${slugA}`, id }))).status, 200);
+      await tick();
+      graphStatus = 200;
+      const [msg] = await sql("SELECT pending_replies FROM whatsapp_messages WHERE wamid = ?", [id]);
+      assert.ok(msg.pending_replies, 'resposta não entregue fica pendente');
+      const [job] = await sql("SELECT status, attempts FROM jobs WHERE type = 'whatsapp_inbound' AND payload LIKE ?", [`%${id}%`]);
+      assert.deepEqual([job.status, Number(job.attempts)], ['pending', 1], 'job volta para retry');
+      assert.ok(sent.slice(before).every(m => m.body.to === waRetry), 'só tentou o próprio contato');
+      const mid = sent.length;
+      await sql("UPDATE jobs SET due_at = NOW() WHERE type = 'whatsapp_inbound' AND status = 'pending'");
+      await tick();
+      const resent = sent.slice(mid).filter(m => m.body.to === waRetry);
+      assert.ok(resent.length >= 1 && bodyOf(resent[0]).length > 0, 'retry reenvia a resposta');
+      assert.equal((await sql("SELECT pending_replies FROM whatsapp_messages WHERE wamid = ?", [id]))[0].pending_replies, null);
+      // Reentrega da Meta do mesmo wamid depois do sucesso: nada é reenviado.
+      const after = sent.length;
+      await postMeta(messagePayload(waRetry, { text: `Agendar ${slugA}`, id }));
+      await tick();
+      assert.equal(sent.slice(after).filter(m => m.body.to === waRetry).length, 0);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));

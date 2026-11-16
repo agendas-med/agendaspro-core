@@ -108,6 +108,36 @@ async function settingsOf(companyId) {
 
 const sayText = body => ({ message: provider.text(body), body });
 
+// Follow-up 1: as respostas ficam em pending_replies da mensagem recebida até serem entregues (uma a uma).
+// Se o envio falha, o erro sobe, o job tenta de novo e a reentrega reenvia só o restante.
+const pendingJson = (companyId, items) => (items.length ? JSON.stringify({ companyId, items }) : null);
+async function replyTracked(ctx, messageId, items) {
+  let rest = items.map(item => ({ message: item.message, body: item.body }));
+  await functions.executeSql('UPDATE whatsapp_messages SET pending_replies = ? WHERE id = ?', [pendingJson(ctx.companyId, rest), messageId]);
+  while (rest.length) {
+    await outbound.replyAll(ctx, [rest[0]]);
+    rest = rest.slice(1);
+    await functions.executeSql('UPDATE whatsapp_messages SET pending_replies = ? WHERE id = ?', [pendingJson(ctx.companyId, rest), messageId]);
+  }
+}
+
+// Reentrega do mesmo wamid (retry do job): reenvia o que ficou pendente, sob a trava da conversa.
+async function resendPending({ account, conv, contact, wamid }) {
+  const [prev] = await functions.executeSql("SELECT id, body, pending_replies FROM whatsapp_messages WHERE wamid = ? AND direction = 'in' AND conversation_id = ?", [wamid, conv.id]);
+  if (!prev?.pending_replies) return { duplicate: true };
+  let pending;
+  try { pending = JSON.parse(prev.pending_replies); } catch { pending = null; }
+  const items = Array.isArray(pending?.items) ? pending.items : [];
+  const [fresh] = await functions.executeSql('SELECT opted_out_at FROM whatsapp_contacts WHERE id = ?', [contact.id]);
+  // Contato pediu PARAR depois: não reenvia (exceto a confirmação do próprio PARAR).
+  if (!items.length || (fresh?.opted_out_at && !OPT_OUT.test(router.norm(prev.body)))) {
+    await functions.executeSql('UPDATE whatsapp_messages SET pending_replies = NULL WHERE id = ?', [prev.id]);
+    return { duplicate: true, dropped: items.length };
+  }
+  await replyTracked({ account, conversation: conv, contact, companyId: pending.companyId ?? conv.company_id }, prev.id, items);
+  return { duplicate: true, resent: items.length };
+}
+
 async function handleMessage(item, { deps: injectedDeps } = {}) {
   const account = await provider.accountByPhoneNumberId(item.phoneNumberId);
   if (!account) return { ignored: 'unknown_number' };
@@ -119,7 +149,7 @@ async function handleMessage(item, { deps: injectedDeps } = {}) {
     const [conv] = await functions.executeSql('SELECT * FROM whatsapp_conversations WHERE id = ?', [conversation.id]);
     const stored = await functions.executeSql(`INSERT IGNORE INTO whatsapp_messages (conversation_id, company_id, direction, author, wamid, type, body, status)
       VALUES (?, ?, 'in', 'customer', ?, ?, ?, 'received')`, [conv.id, conv.company_id, item.wamid, String(item.type || 'text').slice(0, 20), item.text || null]);
-    if (!stored.affectedRows) return { duplicate: true };
+    if (!stored.affectedRows) return resendPending({ account, conv, contact, wamid: item.wamid });
     const messageId = stored.insertId;
 
     await functions.executeSql('UPDATE whatsapp_conversations SET last_inbound_at = NOW(), last_message_at = NOW() WHERE id = ?', [conv.id]);
@@ -134,14 +164,14 @@ async function handleMessage(item, { deps: injectedDeps } = {}) {
     const text = router.norm(item.text);
     if (OPT_OUT.test(text)) {
       await functions.executeSql('UPDATE whatsapp_contacts SET opted_out_at = NOW() WHERE id = ?', [contact.id]);
-      await outbound.replyAll(ctx, [sayText('Pronto, você não vai mais receber mensagens nossas por aqui. Para voltar, envie VOLTAR.')]);
+      await replyTracked(ctx, messageId, [sayText('Pronto, você não vai mais receber mensagens nossas por aqui. Para voltar, envie VOLTAR.')]);
       return { optedOut: true };
     }
     const [fresh] = await functions.executeSql('SELECT opted_out_at FROM whatsapp_contacts WHERE id = ?', [contact.id]);
     if (fresh.opted_out_at) {
       if (!OPT_IN.test(text)) {
         const notice = await hit(`wa-optout-notice:${item.waId}`, 86400);
-        if (notice.hits === 1) await outbound.replyAll(ctx, [sayText('Você pediu para não receber mensagens. Para voltar a usar o atendimento, envie VOLTAR.')]);
+        if (notice.hits === 1) await replyTracked(ctx, messageId, [sayText('Você pediu para não receber mensagens. Para voltar a usar o atendimento, envie VOLTAR.')]);
         return { optedOutSilent: true };
       }
       await functions.executeSql("UPDATE whatsapp_contacts SET opted_out_at = NULL, opt_in_at = NOW(), opt_in_source = 'keyword_voltar' WHERE id = ?", [contact.id]);
@@ -171,17 +201,17 @@ async function handleMessage(item, { deps: injectedDeps } = {}) {
 
     if (result.handoff) {
       if (!companyId) {
-        await outbound.replyAll(ctx, [sayText('Primeiro me diga o código do estabelecimento (final do link de agendamento).')]);
+        await replyTracked(ctx, messageId, [sayText('Primeiro me diga o código do estabelecimento (final do link de agendamento).')]);
         return { handoff: false };
       }
       await functions.executeSql("UPDATE whatsapp_conversations SET mode = 'human', handoff_at = NOW(), assigned_user_id = NULL, state = 'menu' WHERE id = ?", [conv.id]);
-      await outbound.replyAll(ctx, [sayText('Certo! Vou chamar alguém da equipe. Assim que possível um atendente responde por aqui.')]);
+      await replyTracked(ctx, messageId, [sayText('Certo! Vou chamar alguém da equipe. Assim que possível um atendente responde por aqui.')]);
       return { handoff: true };
     }
 
     await functions.executeSql('UPDATE whatsapp_conversations SET company_id = ?, state = ?, context = ? WHERE id = ?',
       [companyId, String(result.state || 'menu').slice(0, 40), JSON.stringify(result.context || {}), conv.id]);
-    if (result.replies?.length) await outbound.replyAll(ctx, result.replies);
+    if (result.replies?.length) await replyTracked(ctx, messageId, result.replies);
     return { state: result.state, aiUsed: !!result.aiUsed };
   } finally {
     await release(conversation.id, lease).catch(() => {});
