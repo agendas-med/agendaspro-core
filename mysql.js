@@ -1,13 +1,17 @@
 require('./config/env');
 const mysql = require('mysql');
+const { resolveDatabaseConfig, connectionLimit } = require('./config/database');
+
+// MYSQL_* explícitas ou URL de add-on (JAWSDB_MARIA_URL/DATABASE_URL); ver config/database.js.
+const { host, port, user, password, database } = resolveDatabaseConfig();
 
 let pool = mysql.createPool({
-    user: process.env.MYSQL_USER,
-    password: process.env.MYSQL_PASSWORD,
-    database: process.env.MYSQL_DATABASE,
-    host: process.env.MYSQL_HOST,
-    port: process.env.MYSQL_PORT,
-    connectionLimit: process.env.MYSQL_CONNECTION_LIMIT || 10,
+    user,
+    password,
+    database,
+    host,
+    port,
+    connectionLimit: connectionLimit(),
     multipleStatements: false,
     timezone: '-03:00',
     charset: 'utf8mb4',

@@ -1,0 +1,46 @@
+# Gatilho horário de POST /internal/jobs/tick (alternativa/backup ao cron-job.org).
+# Configure em Settings > Secrets and variables > Actions:
+#   secret  JOBS_TICK_TOKEN  (mesmo valor do Heroku)
+#   secret  API_BASE_URL     (ex.: https://SEU-APP.herokuapp.com; sem barra final)
+# Sem os secrets o job termina sem erro (forks e repositório sem deploy).
+# Limitações do GitHub: o agendamento pode atrasar ou pular execuções em horários de pico e
+# é desativado após 60 dias sem atividade no repositório público. Os handlers toleram ~1 h de
+# atraso e o tick é idempotente, então rodar junto com o cron-job.org é seguro.
+name: Jobs tick (horário)
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jobs-tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/jobs-tick.js
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Tick
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          JOBS_TICK_TOKEN: ${{ secrets.JOBS_TICK_TOKEN }}
+        run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$JOBS_TICK_TOKEN" ]; then
+            echo "Secrets API_BASE_URL/JOBS_TICK_TOKEN ausentes; nada a fazer."
+            exit 0
+          fi
+          node scripts/jobs-tick.js

@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const mysql = require('mysql');
 const { promisify } = require('node:util');
+const { resolveDatabaseConfig } = require('../config/database');
 
 // Runner de migrations versionadas, sem multipleStatements.
 // - sql/migrations/NNN_nome.sql, aplicadas em ordem e registradas em schema_migrations.
@@ -121,12 +122,13 @@ async function legacyRepair(query) {
 }
 
 async function migrate({ log = console.log } = {}) {
+  // MYSQL_* explícitas ou URL de add-on (JAWSDB_MARIA_URL/DATABASE_URL); ver config/database.js.
+  const { host, port, user, password, database } = resolveDatabaseConfig();
   const conn = mysql.createConnection({
-    host: process.env.MYSQL_HOST, port: process.env.MYSQL_PORT,
-    user: process.env.MYSQL_USER, password: process.env.MYSQL_PASSWORD,
-    database: process.env.MYSQL_DATABASE, multipleStatements: false, charset: 'utf8mb4',
+    host, port, user, password, database, multipleStatements: false, charset: 'utf8mb4',
   });
   const query = promisify(conn.query).bind(conn);
+  const started = Date.now();
   try {
     const [lock] = await query("SELECT GET_LOCK('agendaspro_schema', 30) AS acquired");
     if (!lock.acquired) throw new Error('Outra migração está em execução.');
@@ -154,7 +156,7 @@ async function migrate({ log = console.log } = {}) {
     await runFile(query, path.join(__dirname, '../sql/appointment-status-view.sql'));
     await runFile(query, path.join(__dirname, '../sql/reference-data.sql'));
     await query('INSERT IGNORE INTO schema_migrations(version) VALUES (?)', [LEGACY_VERSION]);
-    log('Schema atualizado; dados existentes preservados.');
+    log(`Schema atualizado; dados existentes preservados (${Date.now() - started} ms).`);
   } finally {
     await query("SELECT RELEASE_LOCK('agendaspro_schema')").catch(() => {});
     conn.end();

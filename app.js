@@ -32,10 +32,17 @@ const filesRoute = require("./routes/files");
 const privacyRoute = require("./routes/privacy");
 
 // Atrás do roteador do Heroku: um proxy confiável (req.ip correto para o rate limit).
-app.set('trust proxy', 1);
+// TRUST_PROXY: número de proxies à frente (padrão 1 = roteador do Heroku). Nunca "true".
+const trustProxyHops = Number.parseInt(process.env.TRUST_PROXY ?? '1', 10);
+app.set('trust proxy', Number.isInteger(trustProxyHops) && trustProxyHops >= 0 ? trustProxyHops : 1);
 app.disable('x-powered-by');
+// Durante o desligamento (SIGTERM), respostas pedem Connection: close.
+app.use(require('./utils/shutdown').connectionCloseWhileShuttingDown);
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// Limite global por IP em memória (GLOBAL_RATE_LIMIT_PER_MIN, padrão 300; desligado em teste).
+app.use(require('./middleware/globalRateLimit').createGlobalRateLimit());
 
 // Log de acesso sem query string (tokens), corpo ou headers.
 // manage_token da API pública é credencial: some do log.
@@ -81,7 +88,8 @@ app.use(express.json({ limit: bodyLimit }));
 app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
 
 // Health leve (sem banco) para o roteador; o profundo exige ADMIN_TOKEN.
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+// GET /health (liveness, sem banco) e GET /health/ready (banco + última migration).
+app.use('/health', require('./routes/health'));
 
 app.use('/users', usersRoute);
 app.use('/companies', companiesRoute);
