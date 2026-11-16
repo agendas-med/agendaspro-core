@@ -21,13 +21,16 @@ Assistente de IA para a equipe da empresa, dentro do painel. Ele responde pergun
 
 | Método e rota | Corpo | Resposta (`data`) |
 |---|---|---|
+| `GET /assistant/status` (follow-up 1; responde mesmo com o assistente desligado) | – | `{enabled, plan, role, usage, ai_available, rag_enabled, actions, read_tools, knowledge_admin}` (ver `contratos-followup1.md` A1) |
 | `POST /assistant/conversations` | – | `201 {id, title, message_count, created_at, updated_at}` (`id` = 32 caracteres hex) |
 | `GET /assistant/conversations` | – | lista das 50 conversas mais recentes do usuário |
-| `GET /assistant/conversations/:id` | – | conversa + `messages[{role, content, intent, source, created_at}]` + `pending_actions[{action_id, tool, summary, risk, expires_at}]` (sem token) |
-| `POST /assistant/conversations/:id/messages` | `{message}` (1 a 4000 caracteres; acima de `ASSISTANT_MAX_MESSAGE_CHARS` é truncado e a resposta traz `truncated:true`) | `{reply, citations?, proposed_actions?, usage:{interactions_used, interactions_limit, counted}}` (`counted` desde o follow-up 1) |
+| `GET /assistant/conversations/:id` | – | conversa + `messages[{id, role, content, intent, source, created_at}]` (`id` desde o follow-up 1) + `pending_actions[{action_id, tool, summary, risk, expires_at}]` (sem token) |
+| `POST /assistant/conversations/:id/messages` | `{message}` (1 a 4000 caracteres; acima de `ASSISTANT_MAX_MESSAGE_CHARS` é truncado e a resposta traz `truncated:true`) | `{reply, source, degraded, user_message_id, message_id, citations?, proposed_actions?, usage:{interactions_used, interactions_limit, counted}}` (`counted`, `source`, `degraded` e ids desde o follow-up 1) |
+| `DELETE /assistant/conversations/:id` (follow-up 1) | – | `{id, deleted:true}`; apaga mensagens e expira as ações pendentes da conversa |
 | `POST /assistant/actions/:action_id/confirm` | `{confirm_token}` | `{action_id, status:'executed', tool, summary, result}` |
 | `POST /assistant/actions/:action_id/reject` | – | `{action_id, status:'rejected'}` |
-| `GET/POST /assistant/knowledge`, `PUT/DELETE /assistant/knowledge/:id` (admin) | `{kind: faq\|policy\|rule\|template, title ≤160, content ≤4000}` | itens da base de conhecimento (até 500 por empresa) |
+| `POST /assistant/actions/:action_id/token` (follow-up 1) | – | mesmo formato de `proposed_actions[]` com um `confirm_token` **novo** (o anterior deixa de valer) e `params_preview:null` |
+| `GET/POST /assistant/knowledge`, `PUT/PATCH/DELETE /assistant/knowledge/:id` (admin; `PATCH` desde o follow-up 1) | `{kind: faq\|policy\|rule\|template, title ≤160, content ≤4000, active?}` (`PATCH`: qualquer subconjunto) | itens da base de conhecimento (até 500 por empresa), com `active` desde o follow-up 1 |
 
 Formato de cada item de `proposed_actions`:
 
@@ -54,7 +57,10 @@ Formato: `{error:{code, message, ...}}`.
 | 429 | `assistant_budget_exceeded` | Teto de tokens da IA atingido (diário da empresa ou do usuário, mensal da empresa, ou global). As perguntas determinísticas continuam funcionando. |
 | 403 | `assistant_forbidden` | Ferramenta de admin pedida por um membro (na proposta ou na confirmação). |
 | 403 | `invalid_confirm_token` | Token errado, de outra ação, ou payload alterado no banco. |
-| 404 | `conversation_not_found`, `action_not_found` | Inclui recurso de outro usuário ou de outra empresa. |
+| 403 | `admin_required` | Base de conhecimento por não admin (follow-up 1; antes era 401 sem código). |
+| 404 | `conversation_not_found`, `action_not_found`, `knowledge_not_found` | Inclui recurso de outro usuário ou de outra empresa e id malformado (follow-up 1: antes `not_found`). |
+| 400 | `validation_error` | Corpo inválido na base de conhecimento (follow-up 1; `errors[]` mantido). |
+| 409 | `knowledge_limit_reached` | Base de conhecimento com 500 itens (follow-up 1; antes 400 sem código). |
 | 409 | `action_already_processed` | Replay, corrida entre confirmações, ação já rejeitada ou que já falhou. |
 | 410 | `action_expired` | Ação vencida (TTL de `ASSISTANT_ACTION_TTL_MIN`, padrão 10 min). |
 | 422 | `action_failed` | O serviço recusou a execução (por exemplo, horário ocupado). Mensagem segura; a ação fica `failed`. |
@@ -203,3 +209,7 @@ Os embeddings usam o mesmo orçamento global e da empresa, além do mesmo circui
 - Anonimizar/excluir um cliente (follow-up 1) remove o **nome completo cadastrado**, telefone, CPF e e-mail dele de `assistant_messages`, títulos/resumos de conversa, ações (JSON inteiro trocado por `{"redacted":true}`; pendentes expiram) e auditoria da mesma empresa. Primeiro nome isolado, apelidos e grafias diferentes **permanecem**; nomes com menos de 5 letras e números com menos de 8 dígitos não são buscados.
 - Com `ASSISTANT_RAG_INCLUDE_NOTES=true`, as observações dos agendamentos são enviadas ao provedor de embeddings (OpenAI). O padrão é não enviar.
 - Não há SSE.
+
+## Follow-up 1
+
+Extensões compatíveis (status, `degraded`, KB `active`/`PATCH`, reemissão de token, códigos de erro, UTC, cota em proposta negada, exclusão de conversa): ver `docs/contratos-followup1.md`, seção "Adendo: assistente".
