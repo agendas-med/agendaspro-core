@@ -23,6 +23,7 @@ const configSchema = Joi.object({
 const listQuery = Joi.object({
   mode: Joi.string().valid('bot', 'human'),
   assigned_to_me: Joi.boolean().truthy('1').falsy('0'),
+  filter: Joi.string().valid('waiting', 'assumed', 'opted_out'),
   limit: Joi.number().integer().min(1).max(100).default(50),
   offset: Joi.number().integer().min(0).max(100000).default(0),
 });

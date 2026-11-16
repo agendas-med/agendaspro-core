@@ -28,11 +28,20 @@ const CONV_FIELDS = `c.id, c.mode, c.state, c.assigned_user_id, ct.wa_id, ct.pro
   DATE_FORMAT(c.handoff_at, '%Y-%m-%d %H:%i:%s') AS handoff_at_wall, DATE_FORMAT(c.last_inbound_at, '%Y-%m-%d %H:%i:%s') AS last_inbound_wall,
   DATE_FORMAT(c.last_message_at, '%Y-%m-%d %H:%i:%s') AS last_message_wall`;
 
-async function listConversations(companyId, { mode, assigned_to_me: mine, userId, limit = 50, offset = 0 } = {}) {
+// Filtros de servidor (follow-up 1): aguardando = com humano e sem atendente; assumidas = com
+// humano e com atendente; opted_out = contato pediu PARAR.
+const FILTERS = {
+  waiting: "c.mode = 'human' AND c.assigned_user_id IS NULL",
+  assumed: "c.mode = 'human' AND c.assigned_user_id IS NOT NULL",
+  opted_out: 'ct.opted_out_at IS NOT NULL',
+};
+
+async function listConversations(companyId, { mode, assigned_to_me: mine, filter, userId, limit = 50, offset = 0 } = {}) {
   const where = ['c.company_id = ?'];
   const params = [companyId];
   if (mode) { where.push('c.mode = ?'); params.push(mode); }
   if (mine) { where.push('c.assigned_user_id = ?'); params.push(userId); }
+  if (filter && FILTERS[filter]) where.push(`(${FILTERS[filter]})`);
   const rows = await functions.executeSql(`SELECT ${CONV_FIELDS},
       (SELECT m.body FROM whatsapp_messages m WHERE m.conversation_id = c.id AND m.company_id = c.company_id ORDER BY m.id DESC LIMIT 1) AS last_body,
       (SELECT m.direction FROM whatsapp_messages m WHERE m.conversation_id = c.id AND m.company_id = c.company_id ORDER BY m.id DESC LIMIT 1) AS last_direction,

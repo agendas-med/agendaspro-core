@@ -89,7 +89,7 @@ Liga com `WHATSAPP_CLOUD_ENABLED=true` (sem isso, avisos são pulados com `not_c
 |---|---|---|
 | `GET /whatsapp/status` | membro | `enabled`, `wa_link`, `settings` (sem segredos) |
 | `PUT /whatsapp/config` | admin | `bot_enabled`, `ai_enabled`, `welcome_text`, `ai_daily_token_limit` |
-| `GET /whatsapp/conversations` | membro | `mode`, `assigned_to_me`, `limit≤100`, `offset`; inclui `window_open` |
+| `GET /whatsapp/conversations` | membro | `mode`, `assigned_to_me`, `filter=waiting\|assumed\|opted_out` (follow-up 1: aguardando = humano sem atendente; assumidas = humano com atendente; contato com PARAR), `limit≤100`, `offset`; inclui `window_open` |
 | `GET /whatsapp/conversations/:id` | membro | 404 `conversation_not_found` fora da empresa |
 | `GET /whatsapp/conversations/:id/messages` | membro | `before_id`, `limit≤200` |
 | `POST /whatsapp/conversations/:id/assume` | membro | modo `human` (bot calado) |

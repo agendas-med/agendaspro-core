@@ -402,6 +402,29 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       assert.match(bodyOf(canceled[0]), /cancelado/);
       assert.equal(Number((await sql('SELECT canceled FROM appointments WHERE id = ?', [appointmentId]))[0].canceled), 1);
     });
+
+    // ---------- Core follow-up 1 ----------
+    const waWait = '5511988880011';
+    const waTaken = '5511988880012';
+    const waStop = '5511988880013';
+    const fu = {};
+    await t.test('follow-up 1: filtros de servidor waiting/assumed/opted_out', async () => {
+      for (const wa of [waWait, waTaken, waStop]) await say(wa, { text: `Agendar ${slugA}` });
+      await say(waWait, { replyId: 'm:human' });
+      await say(waStop, { text: 'PARAR' });
+      fu.wait = (await conversationOf(waWait)).id;
+      fu.taken = (await conversationOf(waTaken)).id;
+      fu.stop = (await conversationOf(waStop)).id;
+      await A.as('POST', `/whatsapp/conversations/${fu.taken}/assume`);
+      const ids = async q => (await A.as('GET', `/whatsapp/conversations?${q}`)).data.map(c => c.id);
+      const waiting = await ids('filter=waiting');
+      assert.ok(waiting.includes(fu.wait) && !waiting.includes(fu.taken) && !waiting.includes(fu.stop));
+      const assumed = await ids('filter=assumed');
+      assert.ok(assumed.includes(fu.taken) && !assumed.includes(fu.wait));
+      assert.deepEqual(await ids('filter=opted_out'), [fu.stop]);
+      assert.deepEqual((await B.as('GET', '/whatsapp/conversations?filter=waiting')).data, [], 'filtro respeita a empresa');
+      await A.as('GET', '/whatsapp/conversations?filter=outro', undefined, 400);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));
