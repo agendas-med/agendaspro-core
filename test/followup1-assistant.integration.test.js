@@ -157,6 +157,26 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
       } finally { process.env.ASSISTANT_TOKEN_SECRET = saved; }
       assert.equal((await ob.expect(200, 'GET', '/assistant/status')).data.data.plan.code, 'free', 'plano é da empresa do header');
     });
+    await t.test('2: degraded/source na resposta da mensagem', async () => {
+      const conv = await newConv(oa);
+      const pick = r => [r.status, r.data.data.source, r.data.data.degraded];
+      assert.deepEqual(pick(await say(oa, conv, 'agenda de hoje')), [200, 'template', false], 'roteador determinístico');
+      route('none');
+      plan.reply = () => ({ reply: 'Posso ajudar com agenda e estoque.' });
+      assert.deepEqual(pick(await say(oa, conv, 'o que você sabe fazer de interessante')), [200, 'ai', false]);
+      route('list_services');
+      plan.reply = () => { throw new Error('redação fora'); };
+      const tpl = await say(oa, conv, 'me conte sobre os procedimentos oferecidos');
+      assert.deepEqual(pick(tpl), [200, 'template', true], 'template após falha da redação');
+      assert.equal(tpl.data.data.usage.counted, true);
+      plan.route = () => { throw new Error('classificação fora'); };
+      const down = await say(oa, conv, 'uma pergunta aberta qualquer');
+      assert.deepEqual(pick(down), [200, 'fallback', true]);
+      assert.equal(down.data.data.usage.counted, false);
+      route('none');
+      plan.reply = () => ({ reply: 'Resposta da IA.' });
+    });
+
   } finally {
     require('../services/ai/provider').setProvider(null);
     if (server) await new Promise(resolve => server.close(resolve));

@@ -308,7 +308,11 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
   await functions.executeSql('UPDATE assistant_conversations SET message_count = message_count + 2, summary = ?, title = COALESCE(title, ?) WHERE id = ?', [summary, guard.oneLine(text, 80), conv.id]);
   await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'message', tool: out.tool || null, result: out.source, detail: out.intent || null, tokens: out.tokens || 0 });
 
-  const response = { reply: out.reply, usage: { interactions_used: usage.used, interactions_limit: usage.limit, counted: usage.counted !== false } };
+  // Follow-up 1: degraded = a IA era necessária mas não respondeu (fallback ou template após falha da redação).
+  const response = {
+    reply: out.reply, source: out.source, degraded: out.source === 'fallback' || out.degraded === true,
+    usage: { interactions_used: usage.used, interactions_limit: usage.limit, counted: usage.counted !== false },
+  };
   if (out.citations?.length) response.citations = out.citations;
   if (out.proposed_actions?.length) response.proposed_actions = out.proposed_actions;
   if (truncated) response.truncated = true;
@@ -384,6 +388,8 @@ async function answer(ctx, text, history, summary, injection) {
   tokens += composed.usage?.tokens || 0;
   return {
     reply: composed.ok ? composed.text : template, source: composed.ok ? 'ai' : 'template', intent: choice, tool: choice,
+    // Redação da IA falhou: a resposta é o template dos dados (correta, porém degradada).
+    degraded: !composed.ok,
     citations: citationsOf(choice, result.data), tokens,
   };
 }

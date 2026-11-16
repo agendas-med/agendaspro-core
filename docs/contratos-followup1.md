@@ -119,3 +119,11 @@ Tudo o que já existia no `contratos-f5b.md` continua valendo. Os itens abaixo s
 - `ai_available` diz se há provider de IA. Sem ele, só o roteador determinístico responde.
 - `actions.enabled` só é `true` com o assistente ligado, `ASSISTANT_TOKEN_SECRET` configurado e plano com `assistant_actions`.
 - O front pode trocar o teste `GET /assistant/conversations` por esta rota, e o `/billing/subscription` pelo `usage` daqui.
+## A2. `degraded` e `source` na resposta da mensagem
+
+`POST /assistant/conversations/:id/messages` ganha dois campos aditivos em `data` (nada removido):
+
+- `source`: `template` (resposta determinística/montada pelo core), `ai` (texto gerado pelo provedor) ou `fallback` (provedor falhou ao rotear; resposta genérica de indisponibilidade).
+- `degraded`: `true` quando `source = fallback` **ou** quando a ferramenta rodou mas a redação pela IA falhou e o core respondeu com o template cru. `false` nos demais casos.
+
+Interação `fallback` continua não contando cota (`usage.counted = false`); template após falha de redação conta (`counted = true`), pois a ferramenta foi executada. A UI pode exibir um aviso discreto quando `degraded = true`.
