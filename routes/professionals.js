@@ -25,6 +25,9 @@ const paramId = (req, res, next) => {
 };
 
 router.get('/', ...member, validateQuery(listQuery), handle(req => professionals.list(req.companyId, { includeInactive: req.validQuery.include_inactive })));
+// Follow-up 1: vínculo com usuário. Rotas fixas antes de /:id.
+router.get('/members', ...admin, handle(req => professionals.members(req.companyId)));
+router.get('/me', ...member, handle(req => professionals.mine(req.companyId, req.usuario.id)));
 router.get('/:id', ...member, paramId, handle(req => professionals.get(req.companyId, req.params.id)));
 // Criação respeita a quota max_professionals do plano (402 plan_upgrade_required).
 router.post('/', ...admin, validateBody(createSchema), handle(async req => ({ __status: 201, data: await professionals.create(req.companyId, req.body) })));

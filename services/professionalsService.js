@@ -23,6 +23,17 @@ async function assertUser(query, companyId, userId) {
   if (!member) throw new HttpError(400, 'Usuário não pertence a esta empresa.');
 }
 
+// Um usuário fica vinculado a no máximo um profissional ativo por empresa (chamado com a empresa travada).
+async function assertUserFree(query, companyId, userId, professionalId = 0) {
+  if (userId === null || userId === undefined) return;
+  const [taken] = await query('SELECT id FROM professionals WHERE company_id = ? AND user_id = ? AND active = 1 AND id <> ? LIMIT 1', [companyId, userId, professionalId]);
+  if (taken) {
+    throw Object.assign(new Error('Este usuário já está vinculado a outro profissional.'), {
+      status: 409, code: 'professional_user_taken', details: { professional_id: taken.id },
+    });
+  }
+}
+
 async function setServices(query, companyId, professionalId, serviceIds) {
   if (serviceIds === undefined) return;
   const ids = [...new Set(serviceIds.map(Number))];
@@ -81,6 +92,7 @@ const professionalsService = {
       await lockCompany(query, companyId); // serializa a checagem de quota
       await plans.assertQuota(companyId, 'max_professionals', { query });
       await assertUser(query, companyId, data.user_id);
+      await assertUserFree(query, companyId, data.user_id);
       const result = await query(
         `INSERT INTO professionals (company_id, ${FIELDS.join(', ')}) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [companyId, ...FIELDS.map(field => data[field] ?? null)],
@@ -97,6 +109,9 @@ const professionalsService = {
       const current = await getProfessional(query, companyId, id, { lock: true });
       if (data.active === true && !current.active) await plans.assertQuota(companyId, 'max_professionals', { query });
       if (data.user_id !== undefined) await assertUser(query, companyId, data.user_id);
+      const finalUser = data.user_id !== undefined ? data.user_id : current.user_id;
+      const finalActive = data.active !== undefined ? data.active : !!current.active;
+      if (finalActive && (data.user_id !== undefined || data.active === true)) await assertUserFree(query, companyId, finalUser, id);
       const sets = [];
       const params = [];
       for (const field of [...FIELDS, 'active']) {
@@ -108,6 +123,23 @@ const professionalsService = {
       await setServices(query, companyId, id, data.service_ids);
     });
     return this.get(companyId, id);
+  },
+
+  // ---- Vínculo profissional <-> usuário (follow-up 1) ----
+  // Membros da empresa com o profissional ativo vinculado (para o seletor do painel).
+  async members(companyId) {
+    const rows = await functions.executeSql(
+      `SELECT u.id AS user_id, u.name, u.email,
+              (SELECT p.id FROM professionals p WHERE p.company_id = cm.company_id AND p.user_id = u.id AND p.active = 1 ORDER BY p.id LIMIT 1) AS professional_id
+         FROM company_members cm INNER JOIN users u ON u.id = cm.user_id
+        WHERE cm.company_id = ? ORDER BY u.name, u.id`, [companyId]);
+    return rows.map(r => ({ user_id: r.user_id, name: r.name, email: r.email, professional_id: r.professional_id ?? null }));
+  },
+
+  // Profissional ativo do usuário logado nesta empresa (null se não houver).
+  async mine(companyId, userId) {
+    const [row] = await functions.executeSql('SELECT id FROM professionals WHERE company_id = ? AND user_id = ? AND active = 1 ORDER BY id LIMIT 1', [companyId, userId]);
+    return row ? this.get(companyId, row.id) : null;
   },
 
   // ---- Foto (follow-up 1): data URL base64 -> valida pelos bytes (magic number) -> banco ----

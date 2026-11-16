@@ -675,6 +675,8 @@ let companiesService = {
 
     await functions.executeTransaction(async (query) => {
       await query(`DELETE FROM company_members WHERE company_id = ? AND user_id = ?`, [company_id, exclude_user_id]);
+      // Profissional continua existindo; só perde o vínculo com quem saiu.
+      await query(`UPDATE professionals SET user_id = NULL WHERE company_id = ? AND user_id = ?`, [company_id, exclude_user_id]);
       await query(
         `DELETE FROM company_invitations WHERE company_id = ? AND invited_user = (SELECT email FROM users WHERE id = ?)`,
         [company_id, exclude_user_id],

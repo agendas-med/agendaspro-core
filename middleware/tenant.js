@@ -19,6 +19,8 @@ const CODED = new Set(['plan_upgrade_required', 'billing_disabled', 'slot_unavai
   'window_closed', 'opted_out', 'template_unavailable', 'template_params', 'whatsapp_not_configured', 'send_failed', 'conversation_not_found', 'conversation_busy',
   // follow-up 1
   'conversation_assigned', 'admin_required',
+  // Follow-up 1 (profissionais)
+  'professional_user_taken',
   // F5-core-B assistente
   'assistant_disabled', 'rate_limited', 'assistant_budget_exceeded', 'assistant_forbidden', 'assistant_tool_error', 'assistant_actions_disabled',
   'action_not_found', 'invalid_confirm_token', 'action_expired', 'action_already_processed', 'action_failed']);

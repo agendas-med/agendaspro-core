@@ -84,6 +84,12 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
     }
     const A = await tenant('a', '52998224725');
     const B = await tenant('b', '11144477735');
+    const premium = async companyId => {
+      const [p] = await sql("SELECT id, price_cents FROM plans WHERE code = 'premium'");
+      const sub = (await sql("INSERT INTO company_subscriptions (company_id, plan_id, price_cents, status) VALUES (?, ?, ?, 'active')", [companyId, p.id, p.price_cents])).insertId;
+      await sql("INSERT INTO subscription_invoices (company_id, subscription_id, plan_id, provider_payment_id, amount_cents, status, due_date, period_start, period_end) VALUES (?, ?, ?, ?, ?, 'paid', CURDATE(), NOW() - INTERVAL 1 DAY, NOW() + INTERVAL 29 DAY)", [companyId, sub, p.id, `pay_fu1_${companyId}`, p.price_cents]);
+    };
+    await premium(A.companyId); // A em Premium (vários profissionais); B fica no Free
     const memberA = await A.member('a-membro');
 
     await t.test('D1: foto do profissional no banco, validada pelos bytes e servida com nosniff', async () => {
@@ -131,6 +137,45 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
       // Remover não apaga uma photo_url externa definida manualmente.
       await A.as('PATCH', `/professionals/${pro.id}`, { photo_url: 'https://cdn.example.test/ana.png' });
       assert.equal((await A.as('DELETE', `/professionals/${pro.id}/photo`)).data.photo_url, 'https://cdn.example.test/ana.png');
+    });
+
+    await t.test('D2: vínculo profissional <-> usuário (members, me, 409, saída da empresa)', async () => {
+      const outsider = await B.member('b-membro');
+      assert.equal((await memberA.as('GET', '/professionals/me')).data, null);
+      await memberA.as('GET', '/professionals/members', undefined, 401);
+
+      const linked = (await A.as('POST', '/professionals', { name: 'Bruno Vinculado', user_id: memberA.userId }, 201)).data;
+      assert.equal(linked.user_id, memberA.userId);
+      const me = (await memberA.as('GET', '/professionals/me')).data;
+      assert.equal(me.id, linked.id);
+
+      const members = (await A.as('GET', '/professionals/members')).data;
+      const row = members.find(m => m.user_id === memberA.userId);
+      assert.equal(row.professional_id, linked.id);
+      assert.equal(members.find(m => m.user_id === A.userId).professional_id, null);
+      assert.ok(!members.some(m => m.user_id === outsider.userId), 'membro de outra empresa não aparece');
+
+      // Mesmo usuário em outro profissional ativo: 409 com code; usuário de outra empresa: 400.
+      const taken = await call('POST', '/professionals', { body: { name: 'Duplicado', user_id: memberA.userId }, auth: A.token, company: A.companyId });
+      assert.equal(taken.status, 409);
+      assert.equal(taken.data.error.code, 'professional_user_taken');
+      assert.equal(taken.data.error.professional_id, linked.id);
+      await A.as('POST', '/professionals', { name: 'Fora', user_id: outsider.userId }, 400);
+      const free = (await A.as('POST', '/professionals', { name: 'Carla Livre' }, 201)).data;
+      await A.as('PATCH', `/professionals/${free.id}`, { user_id: memberA.userId }, 409);
+
+      // Desativado libera o usuário; reativar o antigo com o vínculo ocupado dá 409.
+      await A.as('DELETE', `/professionals/${linked.id}`);
+      assert.equal((await A.as('PATCH', `/professionals/${free.id}`, { user_id: memberA.userId })).data.user_id, memberA.userId);
+      await A.as('PATCH', `/professionals/${linked.id}`, { active: true }, 409);
+      assert.equal((await memberA.as('GET', '/professionals/me')).data.id, free.id);
+
+      // Saída da empresa desfaz o vínculo (o profissional continua).
+      await A.as('DELETE', `/companies/remove_user/${memberA.userId}`);
+      const [after] = await sql('SELECT user_id, active FROM professionals WHERE id = ?', [free.id]);
+      assert.equal(after.user_id, null);
+      assert.equal(after.active, 1);
+      await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [A.companyId, memberA.userId]);
     });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
