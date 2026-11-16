@@ -158,8 +158,8 @@ O valor `null` volta para `APP_TIMEZONE` (padrão `America/Sao_Paulo`).
     `availability_rules`, `time_blocks`, `appointments.professional_id` e
     `appointments.notified_2h`.
 - **Compatibilidade**: as duas são aditivas, retrocompatíveis e idempotentes no runner.
-- **Fonte da verdade**: as migrations. `sql/structure.sql` é um snapshot legado e não foi
-  regenerado.
+- **Fonte da verdade**: as migrations. `sql/structure.sql` era um snapshot legado; no
+  follow-up 1 (D7) foi regenerado a partir das migrations (ver `contratos-followup1.md`).
 
 ## Variáveis novas (`.env.example`)
 

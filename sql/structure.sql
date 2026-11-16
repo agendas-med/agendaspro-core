@@ -1,5 +1,5 @@
 -- Aplicar ao banco selecionado na conexão. Para bancos existentes, use npm run db:migrate.
--- Snapshot gerado das migrations 001-016 (fonte da verdade: sql/migrations). Sem dados nem schema_migrations.
+-- Snapshot gerado das migrations 001-018 (fonte da verdade: sql/migrations). Sem dados nem schema_migrations.
 -- MariaDB dump 10.19-11.4.13-MariaDB, for debian-linux-gnu (x86_64)
 --
 -- Host: localhost    Database: agendaspro_db
@@ -255,6 +255,7 @@ CREATE TABLE `assistant_actions` (
   `summary` varchar(300) NOT NULL,
   `params` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`params`)),
   `payload_hash` char(64) NOT NULL,
+  `token_version` int(11) NOT NULL DEFAULT 0,
   `status` enum('pending','executing','executed','failed','rejected','expired') NOT NULL DEFAULT 'pending',
   `expires_at_ms` bigint(20) NOT NULL,
   `result` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`result`)),
@@ -357,6 +358,7 @@ CREATE TABLE `assistant_knowledge` (
   `kind` enum('faq','policy','rule','template') NOT NULL DEFAULT 'faq',
   `title` varchar(160) NOT NULL,
   `content` text NOT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT 1,
   `created_by` int(11) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT current_timestamp(),
   `updated_at` datetime NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
