@@ -27,7 +27,8 @@ const int = (name, fallback, min = 0) => {
 };
 const config = () => ({
   ttlMs: int('PUBLIC_CHAT_SESSION_TTL_MIN', 60, 1) * 60000,
-  maxMessages: int('PUBLIC_CHAT_SESSION_MAX_MESSAGES', 20, 1),
+  // TTL deslizante: cada mensagem aceita estende a validade para agora + TTL, até exp original + este teto.
+  maxExtensionMs: int('PUBLIC_CHAT_SESSION_MAX_EXTENSION_MIN', 120, 0) * 60000,  maxMessages: int('PUBLIC_CHAT_SESSION_MAX_MESSAGES', 20, 1),
   maxTokens: int('PUBLIC_CHAT_SESSION_MAX_TOKENS', 6000, 0),
   maxChars: Math.min(int('PUBLIC_CHAT_MESSAGE_MAX_CHARS', 500, 20), 2000),
   sessionsPerIpDay: int('PUBLIC_CHAT_SESSIONS_PER_IP_DAY', 10, 1),
@@ -64,15 +65,26 @@ function issueToken(publicId, expMs) {
   return `${body}.${sign(body, secret())}`;
 }
 
-function readToken(token, now = Date.now()) {
+// Verifica só formato e HMAC; devolve o exp assinado mesmo vencido (a validade efetiva, com
+// renovação, é decidida contra o banco em authenticate).
+function verifyToken(token) {
   const parts = String(token || '').split('.');
   if (parts.length !== 4 || parts[0] !== PREFIX || !/^[a-f0-9]{32}$/.test(parts[1]) || !/^\d{13}$/.test(parts[2])) return null;
   const expected = Buffer.from(sign(parts.slice(0, 3).join('.'), secret()));
   const given = Buffer.from(parts[3]);
   if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) return null;
-  if (Number(parts[2]) <= now) return { expired: true };
   return { publicId: parts[1], expMs: Number(parts[2]) };
 }
+
+function readToken(token, now = Date.now()) {
+  const parsed = verifyToken(token);
+  if (!parsed) return null;
+  if (parsed.expMs <= now) return { expired: true };
+  return parsed;
+}
+
+// Validade efetiva: exp do token ou a renovação deslizante (sempre <= exp + teto).
+const effectiveExp = session => Math.max(Number(session.expires_at_ms), Number(session.renewed_until_ms) || 0);
 
 const ipHash = ip => crypto.createHmac('sha256', secret()).update(`ip:${ip || ''}`).digest('hex');
 
@@ -100,7 +112,7 @@ function remaining(session) {
 const sessionView = (session, company) => ({
   audience: session.audience,
   status: session.status,
-  expires_at: new Date(Number(session.expires_at_ms)).toISOString(),
+  expires_at: new Date(effectiveExp(session)).toISOString(),
   company: company ? { name: company.name, slug: company.slug } : null,
   limits: { max_messages: Number(session.max_messages), max_tokens: Number(session.max_tokens), max_chars: config().maxChars },
   remaining: remaining(session),
@@ -186,12 +198,12 @@ async function createSession(body, { ip, now = Date.now() } = {}) {
 async function authenticate(authorization, { now = Date.now() } = {}) {
   assertEnabled();
   const match = /^Bearer\s+(\S{10,300})$/i.exec(String(authorization || ''));
-  const parsed = match ? readToken(match[1], now) : null;
+  // HMAC primeiro (sem consulta ao banco para token forjado); só então a validade efetiva no banco.
+  const parsed = match ? verifyToken(match[1]) : null;
   if (!parsed) throw fail(401, 'invalid_session', 'Sessão inválida. Abra o chat novamente.');
-  if (parsed.expired) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
   const session = await loadSession(parsed.publicId);
   if (!session || Number(session.expires_at_ms) !== parsed.expMs) throw fail(401, 'invalid_session', 'Sessão inválida. Abra o chat novamente.');
-  if (Number(session.expires_at_ms) <= now) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
+  if (effectiveExp(session) <= now) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
   return session;
 }
 
@@ -280,13 +292,19 @@ async function replayed(sessionId, clientMsgId) {
 // Portão atômico: sessão ativa, não expirada, fora de cooldown, abaixo do teto e fora do debounce.
 async function claimTurn(session, now, cfg) {
   const result = await functions.executeSql(
-    `UPDATE chat_sessions SET message_count = message_count + 1, last_user_at_ms = ?
-     WHERE id = ? AND status = 'active' AND expires_at_ms > ? AND blocked_until_ms <= ? AND message_count < max_messages AND last_user_at_ms <= ?`,
-    [now, session.id, now, now, now - cfg.debounceMs],
+    // Renovação deslizante só aqui (mensagem aceita): validade = agora + TTL, nunca além de exp + teto
+    // e nunca menor que a atual.
+    `UPDATE chat_sessions SET message_count = message_count + 1, last_user_at_ms = ?,
+       renewed_until_ms = GREATEST(COALESCE(renewed_until_ms, 0), LEAST(? + ?, expires_at_ms + ?))
+     WHERE id = ? AND status = 'active' AND GREATEST(expires_at_ms, COALESCE(renewed_until_ms, 0)) > ? AND blocked_until_ms <= ? AND message_count < max_messages AND last_user_at_ms <= ?`,
+    [now, now, cfg.ttlMs, cfg.maxExtensionMs, session.id, now, now, now - cfg.debounceMs],
   );
-  if (result.affectedRows) return;
+  if (result.affectedRows) {
+    session.renewed_until_ms = Math.max(Number(session.renewed_until_ms) || 0, Math.min(now + cfg.ttlMs, Number(session.expires_at_ms) + cfg.maxExtensionMs));
+    return;
+  }
   const fresh = await loadSession(session.public_id);
-  if (!fresh || Number(fresh.expires_at_ms) <= now) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
+  if (!fresh || effectiveExp(fresh) <= now) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
   if (fresh.status === 'blocked') throw fail(403, 'session_blocked', knowledge.blockedText());
   if (fresh.status === 'closed') throw fail(409, 'session_closed', 'Esta conversa foi encerrada. Abra o chat novamente.');
   if (Number(fresh.blocked_until_ms) > now) throw fail(429, 'cooldown', 'Aguarde alguns minutos para continuar a conversa.', { retryAfter: Math.ceil((Number(fresh.blocked_until_ms) - now) / 1000) });
@@ -623,7 +641,7 @@ async function sendMessage(session, body, { ip, now = Date.now() } = {}) {
       await functions.executeSql('UPDATE chat_sessions SET blocked_until_ms = ? WHERE id = ?', [now + policy.cooldownMs, session.id]);
     }
     console.warn('[chat] tentativa de injeção:', detection.reasons.join(','), `strike=${strikes}`);
-    const payload = { reply, suggestions: [], actions: [], proactive_hint: null, source: 'guard', remaining: remaining(session) };
+    const payload = { reply, suggestions: [], actions: [], proactive_hint: null, source: 'guard', remaining: remaining(session), session_expires_at: new Date(effectiveExp(session)).toISOString() };
     if (policy.action === 'cooldown') payload.cooldown_seconds = Math.ceil(policy.cooldownMs / 1000);
     await storeReply(session, userMsgId, payload, { flagged: true, intent: 'refuse' });
     return payload;
@@ -649,6 +667,7 @@ async function sendMessage(session, body, { ip, now = Date.now() } = {}) {
     source: out.source,
     ...(out.degraded ? { degraded: true } : {}),
     remaining: remaining(session),
+    session_expires_at: new Date(effectiveExp(session)).toISOString(),
   };
   const summary = nextSummary(session.summary, out.intent);
   if (summary !== (session.summary || null)) await functions.executeSql('UPDATE chat_sessions SET summary = ? WHERE id = ?', [summary, session.id]);

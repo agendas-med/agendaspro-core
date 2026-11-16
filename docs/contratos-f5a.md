@@ -12,6 +12,11 @@ CORS: `allowedHeaders` = `Content-Type, Accept, Authorization`; `exposedHeaders`
 `POST /public/chat/session` devolve `session_token` (`cs1.<id>.<exp_ms>.<hmac>`). As demais rotas
 exigem `Authorization: Bearer <session_token>`; inválido/adulterado → 401 `invalid_session`,
 expirado → 401 `session_expired` (o front abre outra sessão). Sem cookie, sem credenciais CORS.
+**TTL deslizante (follow-up 1):** o token não muda, mas cada mensagem aceita estende a validade
+para agora + `PUBLIC_CHAT_SESSION_TTL_MIN`, até o `exp` original + `PUBLIC_CHAT_SESSION_MAX_EXTENSION_MIN`
+(padrão 120; 0 desliga). A validade efetiva vem em `session_expires_at` (aditivo) na resposta de
+`POST /public/chat/message` e em `expires_at` de `GET /public/chat/session`. O `expires_at` da criação é
+o `exp` inicial. Use a validade efetiva, não o `exp` do token, para decidir quando reabrir.
 A empresa vem **só** do `company_slug` informado na criação (gravado na sessão), nunca de mensagens.
 
 ## Erros específicos
@@ -46,7 +51,8 @@ e 404 de slug não consomem).
 
 ### `POST /public/chat/message`
 Corpo `{ message (1..max_chars), client_msg_id? (^[A-Za-z0-9_-]{8,64}$) }`.
-→ **200** `{ reply, suggestions[], actions[], proactive_hint|null, source, degraded?, replayed?, cooldown_seconds?, remaining:{messages,tokens} }`.
+→ **200** `{ reply, suggestions[], actions[], proactive_hint|null, source, degraded?, replayed?, cooldown_seconds?, remaining:{messages,tokens}, session_expires_at }`
+(`session_expires_at` desde o follow-up 1; numa resposta `replayed` vale o da resposta original).
 - `source`: `faq` (determinística), `ai`, `fallback`, `refusal` (tópico proibido), `guard` (injeção ou saída bloqueada).
 - Reenvio com o mesmo `client_msg_id` devolve a mesma resposta com `replayed:true` (não conta mensagem).
 - `degraded:true`: IA indisponível (orçamento, breaker, erro, timeout); a resposta é determinística e

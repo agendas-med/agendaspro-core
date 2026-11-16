@@ -166,6 +166,28 @@ test('F5A: chat público (sessão, Turnstile, limites, FAQ, IA, injeção, break
       assert.equal((await say(parts.join('.'), 'oi')).status, 401);
     });
 
+    await t.test('TTL deslizante: mensagem aceita renova até exp + teto; token segue imutável', async () => {
+      const s = await open();
+      const E = Number(s.session_token.split('.')[2]);
+      const min = 60000;
+      const ip = '198.51.100.7';
+      const auth = at => chatService.authenticate(`Bearer ${s.session_token}`, { now: at });
+      const send = async at => chatService.sendMessage(await auth(at), { message: 'oi' }, { ip, now: at });
+      const codeOf = p => p.then(() => 'ok', e => `${e.status}:${e.code}`);
+      assert.equal(await codeOf(auth(E + 1)), '401:session_expired', 'sem mensagem não há renovação');
+      const first = await send(E - 1000);
+      assert.equal(first.session_expires_at, new Date(E - 1000 + 60 * min).toISOString());
+      assert.equal(await codeOf(auth(E + 30 * min)), 'ok');
+      await send(E + 30 * min);
+      const capped = await send(E + 89 * min);
+      assert.equal(capped.session_expires_at, new Date(E + 120 * min).toISOString(), 'teto: exp original + 120 min');
+      assert.equal((await chatService.getSession(await auth(E + 100 * min))).expires_at, new Date(E + 120 * min).toISOString());
+      assert.equal(await codeOf(auth(E + 120 * min + 1)), '401:session_expired');
+      const parts = s.session_token.split('.');
+      parts[3] = parts[3].replace(/^./, c => (c === 'A' ? 'B' : 'A'));
+      assert.equal(await codeOf(chatService.authenticate(`Bearer ${parts.join('.')}`, { now: E - 1000 })), '401:invalid_session');
+    });
+
     await t.test('CORS: Authorization permitido e Retry-After exposto', async () => {
       const pre = await call('OPTIONS', '/public/chat/message', { headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization,content-type' } });
       assert.equal(pre.status, 204);
