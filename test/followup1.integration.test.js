@@ -177,6 +177,48 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
       assert.equal(after.active, 1);
       await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [A.companyId, memberA.userId]);
     });
+
+    await t.test('D3: quota max_team_users atômica no convite e revalidada no aceite', async () => {
+      const mail = require('../config/sendEmail');
+      const original = mail.sendEmail;
+      const links = [];
+      mail.sendEmail = async html => { links.push(String(html)); };
+      try {
+        const C = await tenant('c', '86288366757'); // Free: max_team_users = 2 (membros + convites pendentes)
+        const [role] = await sql('SELECT id FROM config_company_roles WHERE company_id = ? ORDER BY id LIMIT 1', [C.companyId]);
+        const invite = email => call('POST', '/companies/invite_user', { body: { name: 'Convidado', email, role: role.id }, auth: C.token, company: C.companyId });
+
+        // 4 convites simultâneos com 1 vaga: exatamente 1 passa, os outros 402.
+        const results = await Promise.all([1, 2, 3, 4].map(n => invite(`par${n}-${process.pid}@agendaspro.test`)));
+        const statuses = results.map(r => r.status).sort();
+        assert.deepEqual(statuses, [200, 402, 402, 402], JSON.stringify(results.map(r => r.raw.slice(0, 120))));
+        const denied = results.find(r => r.status === 402).data.error;
+        assert.equal(denied.code, 'plan_upgrade_required');
+        assert.equal(denied.quota, 'max_team_users');
+        const [{ used }] = await sql("SELECT COUNT(*) AS used FROM company_invitations WHERE company_id = ? AND status = 'pending'", [C.companyId]);
+        assert.equal(Number(used), 1);
+
+        // Aceite: o convite já conta; se a equipe passou do limite (ex.: downgrade), 402 e o convite segue pendente.
+        const okIndex = results.findIndex(r => r.status === 200);
+        const invitedEmail = `par${okIndex + 1}-${process.pid}@agendaspro.test`;
+        const token = decodeURIComponent(/token=([^&"'\s]+)/.exec(links.find(h => h.includes(encodeURIComponent(invitedEmail))))[1]);
+        const extra = await user('c-extra');
+        await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [C.companyId, extra.userId]);
+        const invitedPassword = `senha-${secret()}`;
+        await expect(200, 'POST', '/users/register', { body: { name: 'Convidado', email: invitedEmail, password: invitedPassword } });
+        const over = await call('POST', '/companies/enter_company', { body: { token, email: invitedEmail } });
+        assert.equal(over.status, 402, over.raw);
+        assert.equal(over.data.error.code, 'plan_upgrade_required');
+
+        await sql('DELETE FROM company_members WHERE company_id = ? AND user_id = ?', [C.companyId, extra.userId]);
+        await expect(200, 'POST', '/companies/enter_company', { body: { token, email: invitedEmail } });
+        const [{ members }] = await sql('SELECT COUNT(*) AS members FROM company_members WHERE company_id = ?', [C.companyId]);
+        assert.equal(Number(members), 2);
+        assert.equal((await invite(`depois-${process.pid}@agendaspro.test`)).status, 402);
+      } finally {
+        mail.sendEmail = original;
+      }
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (pool) await new Promise(resolve => pool.end(resolve));

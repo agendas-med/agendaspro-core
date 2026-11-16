@@ -45,3 +45,15 @@ Regras do vínculo:
 - **Desativar libera o usuário:** um profissional desativado não segura o vínculo.
 - **Usuário de outra empresa:** `400`, como antes.
 - **Saída da empresa:** quando o usuário é removido (`DELETE /companies/remove_user/:id`), o `user_id` dos profissionais dele vira `null`. O profissional continua existindo.
+
+## D3. Quota `max_team_users` atômica
+
+O uso da quota é a soma de **membros** e **convites pendentes não vencidos**. Free tem limite 2; Premium é ilimitado.
+
+- **Convite (`POST /companies/invite_user`):**
+  - A empresa é travada (`SELECT … FOR UPDATE`) e a contagem e o `INSERT` do convite rodam na mesma transação. Convites simultâneos não passam do limite.
+  - Acima do limite, a resposta é `402 {error: {code: "plan_upgrade_required", quota: "max_team_users", limit, used, plan}}`, igual a antes.
+  - O e-mail sai depois do commit.
+- **Aceite (`POST /companies/enter_company`):** o convite pendente já está contado, então aceitar não aumenta o uso. O aceite só é recusado com o mesmo `402` se a equipe já estiver **acima** do limite, por exemplo depois de um downgrade. Nesse caso o convite continua pendente.
+  - Mudança de comportamento: antes, o aceite entrava sem checar a quota.
+  - Os demais erros do aceite continuam `400`.

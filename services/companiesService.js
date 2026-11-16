@@ -6,6 +6,13 @@ const _asaasService = require("./asaasService");
 const { encrypt, decrypt, sha256, randomToken } = require("../utils/crypto");
 const { decryptKey } = require("./asaasKeys");
 const { HttpError } = require("../middleware/errorHandler");
+const _plansService = () => require("./plansService"); // tardio: evita ciclo de require
+
+// Serializa operações de equipe da empresa (quota max_team_users).
+async function lockCompanyRow(query, companyId) {
+  const [row] = await query(`SELECT id FROM companies WHERE id = ? FOR UPDATE`, [companyId]);
+  if (!row) throw "Empresa não encontrada";
+}
 
 const MEASUREMENT_UNITS = {
   1: "unidade",
@@ -510,32 +517,39 @@ let companiesService = {
     role_id,
   ) {
     const email = String(requested_user_email || "").trim().toLowerCase();
-    await this.assertRoleInCompany(role_id, company_id);
-
-    const member = await functions.executeSql(
-      `SELECT 1 FROM company_members cm INNER JOIN users u ON u.id = cm.user_id
-        WHERE cm.company_id = ? AND (u.email = ? OR u.id = ?)`,
-      [company_id, email, Number(requested_user_id) || 0],
-    );
-    if (member.length > 0) throw "Este usuário já faz parte desta empresa";
-
-    const existing = await this.checkIfExistInvite(company_id, email);
-    if (existing.length > 0) throw "Este usuário já foi convidado para esta empresa";
-
-    // Convites vencidos e não usados deixam de bloquear um novo convite.
-    await functions.executeSql(
-      `UPDATE company_invitations SET status = 'declined'
-        WHERE company_id = ? AND invited_user = ? AND status = 'pending'`,
-      [company_id, email],
-    );
-
     // Token de 32 bytes; só o hash é persistido. Expira em 7 dias e é de uso único.
     const token = randomToken(32);
-    await functions.executeSql(
-      `INSERT INTO company_invitations (invited_user, company_id, invited_by, token, token_hash, expires_at, role_id)
-       VALUES (?, ?, ?, NULL, ?, NOW() + INTERVAL 7 DAY, ?)`,
-      [email, company_id, request_user, sha256(token), role_id],
-    );
+
+    // Follow-up 1: checagem de quota (membros + convites pendentes) e INSERT na mesma transação,
+    // com a linha da empresa travada; convites simultâneos não passam do limite do plano.
+    await functions.executeTransaction(async (query) => {
+      await lockCompanyRow(query, company_id);
+      await this.assertRoleInCompany(role_id, company_id, query);
+
+      const member = await query(
+        `SELECT 1 FROM company_members cm INNER JOIN users u ON u.id = cm.user_id
+          WHERE cm.company_id = ? AND (u.email = ? OR u.id = ?)`,
+        [company_id, email, Number(requested_user_id) || 0],
+      );
+      if (member.length > 0) throw "Este usuário já faz parte desta empresa";
+
+      const existing = await this.checkIfExistInvite(company_id, email, query);
+      if (existing.length > 0) throw "Este usuário já foi convidado para esta empresa";
+
+      await _plansService().assertQuota(company_id, 'max_team_users', { query });
+
+      // Convites vencidos e não usados deixam de bloquear um novo convite.
+      await query(
+        `UPDATE company_invitations SET status = 'declined'
+          WHERE company_id = ? AND invited_user = ? AND status = 'pending'`,
+        [company_id, email],
+      );
+      await query(
+        `INSERT INTO company_invitations (invited_user, company_id, invited_by, token, token_hash, expires_at, role_id)
+         VALUES (?, ?, ?, NULL, ?, NOW() + INTERVAL 7 DAY, ?)`,
+        [email, company_id, request_user, sha256(token), role_id],
+      );
+    });
 
     const company = await functions.executeSql(`SELECT name FROM companies WHERE id = ?`, [company_id]);
     const link_convite = `${process.env.URL_SITE}/empresa_entrar?token=${encodeURIComponent(token)}&email=${encodeURIComponent(email)}`;
@@ -544,8 +558,8 @@ let companiesService = {
     this.returnCompanyUsers(company_id, true).catch(() => {});
     return token;
   },
-  checkIfExistInvite: function (company_id, email) {
-    return functions.executeSql(
+  checkIfExistInvite: function (company_id, email, query = functions.executeSql.bind(functions)) {
+    return query(
       `SELECT id FROM company_invitations
         WHERE company_id = ? AND invited_user = ? AND status = 'pending' AND used_at IS NULL
           AND (expires_at IS NULL OR expires_at > NOW())`,
@@ -636,9 +650,13 @@ let companiesService = {
   },
   // Aceite do convite: transação única, uso único, cargo revalidado contra a empresa.
   enterCompany: async function (token, user_email) {
+    // Trava a empresa antes do convite (mesma ordem de inviteUser: sem deadlock).
+    const preview = await this.findValidInvite(token);
+    if (!preview) throw "Token inválido ou expirado.";
     const result = await functions.executeTransaction(async (query) => {
+      await lockCompanyRow(query, preview.company_id);
       const invite = await this.findValidInvite(token, query, true);
-      if (!invite) throw "Token inválido ou expirado.";
+      if (!invite || invite.company_id !== preview.company_id) throw "Token inválido ou expirado.";
       if (String(invite.invited_user).toLowerCase() !== String(user_email || "").trim().toLowerCase()) {
         throw "E-mail inválido para o convite";
       }
@@ -648,7 +666,11 @@ let companiesService = {
       await this.assertRoleInCompany(invite.role_id, invite.company_id, query);
 
       const member = await query(`SELECT 1 FROM company_members WHERE user_id = ? AND company_id = ?`, [userId, invite.company_id]);
-      if (!member.length) await query(`INSERT INTO company_members (user_id, company_id) VALUES (?, ?)`, [userId, invite.company_id]);
+      if (!member.length) {
+        // O convite já conta no uso (membros + pendentes): aceitar só falha se o plano caiu abaixo do total.
+        await _plansService().assertQuota(invite.company_id, 'max_team_users', { query, amount: 0 });
+        await query(`INSERT INTO company_members (user_id, company_id) VALUES (?, ?)`, [userId, invite.company_id]);
+      }
       await query(
         `DELETE FROM config_users_roles WHERE user_id = ? AND role_id IN (SELECT id FROM config_company_roles WHERE company_id = ?)`,
         [userId, invite.company_id],

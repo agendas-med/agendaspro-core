@@ -10,7 +10,6 @@ const functions = require("../utils/functions");
 const _asaasService = require("../services/asaasService");
 const { decryptKey } = require("../services/asaasKeys");
 const Joi = require("joi");
-const _plansService = require("../services/plansService");
 const { respondError } = require("../middleware/tenant");
 const { isValidTimezone, resolveTimezone } = require("../utils/time");
 
@@ -91,9 +90,8 @@ router.get("/return_users", ...admin, (req, res) => {
 });
 
 router.post("/invite_user", ...admin, rateLimit({ key: 'invite-user', windowSec: 3600, max: 30 }), validate.validateRequest(validate.schemas.companies.inviteUser), (req, res) => {
-    // Quota de usuários da equipe (membros + convites pendentes) conforme o plano efetivo.
-    _plansService.assertQuota(req.companyId, 'max_team_users')
-        .then(() => _companiesService.inviteUser(req.companyId, req.body.name, req.body.id, req.body.email, req.usuario.id, req.body.role))
+    // Quota de usuários da equipe (membros + convites pendentes): checada dentro da transação do convite.
+    _companiesService.inviteUser(req.companyId, req.body.name, req.body.id, req.body.email, req.usuario.id, req.body.role)
         .then(() => ok(res, "Convite enviado com sucesso", null, "POST"))
         .catch((error) => error?.code === 'plan_upgrade_required' ? respondError(req, res, error) : fail(req, res)(error));
 });
@@ -128,7 +126,7 @@ router.post("/find_user_by_token", inviteLimiter, validate.validateRequest(invit
 router.post("/enter_company", inviteLimiter, validate.validateRequest(inviteTokenSchema), (req, res) => {
     _companiesService.enterCompany(req.body.token, req.body.email)
         .then(() => ok(res, "Acesso à empresa liberado", null, "POST"))
-        .catch(fail(req, res, 400));
+        .catch((error) => error?.code === 'plan_upgrade_required' ? respondError(req, res, error) : fail(req, res, 400)(error));
 });
 
 router.delete("/remove_user/:user_id", ...admin, (req, res) => {
