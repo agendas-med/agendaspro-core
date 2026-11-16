@@ -33,7 +33,8 @@ router.post("/google-login", rateLimit({ key: 'google-login', windowSec: 900, ma
             params: {
                 client_id: process.env.GOOGLE_CLIENT_ID,
                 client_secret: process.env.GOOGLE_CLIENT_SECRET,
-                redirect_uri: process.env.URL_SITE,
+                // Fluxo de código por popup (GIS/vue3-google-login) exige o valor fixo "postmessage".
+                redirect_uri: process.env.GOOGLE_LOGIN_REDIRECT_URI || "postmessage",
                 grant_type: "authorization_code",
                 code: req.body.token
             },
