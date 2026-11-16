@@ -130,12 +130,15 @@ async function limit(key, windowSec, max) {
   if (hits > max) throw fail(429, 'rate_limited', 'Muitas tentativas. Aguarde um pouco e tente novamente.', { retryAfter: Math.max(1, Math.ceil((resetAt.getTime() - Date.now()) / 1000)) });
 }
 
-// POST /public/chat/session. audience obrigatório; company_slug só para audience=customer.
+// POST /public/chat/session. audience obrigatório; company_slug só para audience=customer
+// (ignorado em business).
 async function createSession(body, { ip, now = Date.now() } = {}) {
   assertEnabled();
   const { error, value } = sessionBody.validate(body || {}, { abortEarly: true, allowUnknown: false });
   if (error) throw fail(400, 'validation_error', `Dado inválido: ${error.details[0]?.path?.join('.') || 'requisição'}.`);
-  if (value.company_slug && value.audience !== 'customer') throw fail(400, 'validation_error', 'Dado inválido: company_slug.');
+  // company_slug só vale para audience=customer; no chat do site (business) é ignorado (o widget
+  // pode mandar o slug da página por engano, e isso não deve derrubar a conversa).
+  if (value.audience !== 'customer') delete value.company_slug;
   secret();
   const cfg = config();
   await limit(`public:chat-session|${ip}`, 86400, cfg.sessionsPerIpDay);

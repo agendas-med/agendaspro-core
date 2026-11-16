@@ -118,7 +118,10 @@ test('F5A: chat público (sessão, Turnstile, limites, FAQ, IA, injeção, break
     await t.test('sessão: audience obrigatório, Turnstile fail-closed, slug', async () => {
       assert.equal((await call('POST', '/public/chat/session', { body: { turnstile_token: 'ok-token' } })).status, 400);
       assert.equal((await call('POST', '/public/chat/session', { body: { audience: 'admin', turnstile_token: 'ok-token' } })).status, 400);
-      assert.equal((await call('POST', '/public/chat/session', { body: { audience: 'business', turnstile_token: 'ok-token', company_slug: slug } })).status, 400);
+      const ignored = await expect(201, 'POST', '/public/chat/session', { body: { audience: 'business', turnstile_token: 'ok-token', company_slug: slug } });
+      assert.equal(ignored.data.company, null, 'company_slug é ignorado no chat business');
+      const [ignoredRow] = await sql('SELECT company_id FROM chat_sessions ORDER BY id DESC LIMIT 1');
+      assert.equal(ignoredRow.company_id, null);
       const bad = await call('POST', '/public/chat/session', { body: { audience: 'business', turnstile_token: 'forjado' } });
       assert.deepEqual([bad.status, errCode(bad)], [400, 'turnstile_failed']);
       const missing = await call('POST', '/public/chat/session', { body: { audience: 'business' } });
