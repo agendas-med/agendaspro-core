@@ -87,3 +87,11 @@ O uso da quota é a soma de **membros** e **convites pendentes não vencidos**. 
   - login, cadastro, reset e convite;
   - assistente.
 - No assistente, o corpo continua trazendo `error.retry_after`. Nada foi removido.
+## D7. `sql/structure.sql` regenerado
+
+- `sql/structure.sql` foi regenerado de um banco vazio com as migrations 001–016 aplicadas, pelo `mariadb-dump --no-data`. O snapshot:
+  - não tem `AUTO_INCREMENT=N`, `DEFINER` nem dados;
+  - não inclui `schema_migrations`;
+  - termina com a view canônica (`sql/appointment-status-view.sql`).
+- Verificação: carregar o snapshot num banco vazio e rodar `npm run db:migrate` em seguida dá exatamente o mesmo schema do banco migrado do zero (`diff` vazio).
+- A fonte da verdade continuam sendo as migrations. O snapshot serve de referência e para `sql/inserts.sql`.
