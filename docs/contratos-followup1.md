@@ -67,3 +67,16 @@ O uso da quota é a soma de **membros** e **convites pendentes não vencidos**. 
   - Se todos estão ocupados, a criação falha com o erro de horário ocupado (`slot_taken`, "Nenhum profissional disponível neste horário.").
   - Se nenhum profissional atende os serviços, o agendamento continua sem profissional, como antes. Assim, empresas sem cadastro de profissionais não quebram.
 - O painel (`POST /appointments`) e as ferramentas do assistente (F5-B) **não mudaram**: sem `professional_id`, continuam sem profissional.
+## D5. Dinheiro em `DECIMAL(12,2)` (migração 016)
+
+- Migração `016_money_decimal.sql` (idempotente) muda de `FLOAT` para `DECIMAL(12,2) NOT NULL` as colunas:
+  - `accounts_receivable.amount`
+  - `payments.amount`
+  - `products.value` e `products.cost`
+  - `services.value` e `services.cost`
+
+  Estoque e quantidades (`products.current_stock`, `stock_movements.quantity`) continuam `FLOAT`.
+- Valores gravados com mais de 2 casas são arredondados para 2 casas.
+- O pool (`mysql.js`) converte `DECIMAL` em `Number`, então os campos da API continuam numéricos.
+- `SUM` e `AVG` sobre essas colunas também voltam como número, não string.
+- **Mudança visível:** `sales_products.unit_price` já era `DECIMAL` e chegava como **string** (`"10.50"`). Agora chega como **número** (`10.5`) em todas as respostas que o expõem, por exemplo o `value` dos itens de venda.

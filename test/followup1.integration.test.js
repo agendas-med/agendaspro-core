@@ -244,6 +244,27 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
       // Sem autoAssign o comportamento antigo continua (painel e demais chamadas).
       assert.equal(await proOf(await book('2030-01-09 09:00:00', svc, {})), null);
     });
+
+    await t.test('D5: dinheiro em DECIMAL(12,2), devolvido como número', async () => {
+      const cols = await sql(`SELECT table_name AS t, column_name AS c, column_type AS type FROM information_schema.columns
+        WHERE table_schema = DATABASE() AND ((table_name IN ('services', 'products') AND column_name IN ('value', 'cost'))
+          OR (table_name IN ('accounts_receivable', 'payments') AND column_name = 'amount') OR (table_name = 'products' AND column_name = 'current_stock'))`);
+      for (const col of cols) {
+        if (col.c === 'current_stock') assert.equal(col.type, 'float', 'estoque continua FLOAT');
+        else assert.equal(col.type, 'decimal(12,2)', `${col.t}.${col.c}`);
+      }
+      assert.equal(cols.length, 7);
+
+      // 0.1 + 0.2 em FLOAT viraria 0.30000001192...; em DECIMAL soma exata, e o driver devolve Number.
+      const id = (await sql("INSERT INTO services (name, duration, value, cost, company_id, requires_location, accepts_quantity) VALUES ('Precisão', 30, 19.9, 0.1, ?, 0, 0)", [A.companyId])).insertId;
+      const [row] = await sql('SELECT value, cost, value + cost AS total, SUM(cost) AS summed FROM services WHERE id = ? GROUP BY id', [id]);
+      assert.deepEqual([row.value, row.cost, row.total, row.summed], [19.9, 0.1, 20, 0.1]);
+      assert.equal(typeof row.value, 'number');
+
+      const listed = (await A.as('GET', '/companies/services')).returnObj.find(s => s.id === id);
+      assert.equal(listed.value, 19.9);
+      assert.equal(typeof listed.cost, 'number');
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (pool) await new Promise(resolve => pool.end(resolve));

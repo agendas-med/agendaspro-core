@@ -10,7 +10,13 @@ let pool = mysql.createPool({
     connectionLimit: process.env.MYSQL_CONNECTION_LIMIT || 10,
     multipleStatements: false,
     timezone: '-03:00',
-    charset: 'utf8mb4'
+    charset: 'utf8mb4',
+    // DECIMAL (dinheiro, SUM/AVG) como Number, não string: DECIMAL(12,2) cabe sem perda em double.
+    typeCast: (field, next) => {
+        if (field.type !== 'NEWDECIMAL') return next();
+        const value = field.string();
+        return value === null ? null : Number(value);
+    },
 });
 
 exports.pool = pool;
