@@ -76,6 +76,26 @@ async function runFile(query, file) {
   for (const statement of splitStatements(fs.readFileSync(file, 'utf8'))) await query(statement);
 }
 
+// Banco antigo e parcial (ex.: homologação criada por scripts anteriores): cria só as tabelas do
+// baseline que não existem. Nunca derruba nem altera tabela existente; views ficam por conta de
+// appointment-status-view.sql. FKs entre tabelas novas exigem a checagem desligada nesta conexão.
+async function createMissingBaselineTables(query, file) {
+  const existing = new Set((await query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'")).map(row => String(Object.values(row)[0]).toLowerCase()));
+  const created = [];
+  await query('SET FOREIGN_KEY_CHECKS = 0');
+  try {
+    for (const statement of splitStatements(fs.readFileSync(file, 'utf8'))) {
+      const match = /^CREATE TABLE\s+`([^`]+)`/i.exec(statement);
+      if (!match || existing.has(match[1].toLowerCase())) continue;
+      await query(statement);
+      created.push(match[1]);
+    }
+  } finally {
+    await query('SET FOREIGN_KEY_CHECKS = 1');
+  }
+  return created;
+}
+
 async function legacyRepair(query) {
   const add = async (table, column, definition) => {
     const rows = await query('SELECT 1 FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?', [table, column]);
@@ -143,6 +163,10 @@ async function migrate({ log = console.log } = {}) {
         log(`Migration aplicada: ${baseline.version}`);
       }
       // Banco antigo (com tabelas ou com a versão do script anterior): baseline já existe.
+      else {
+        const created = await createMissingBaselineTables(query, baseline.file);
+        if (created.length) log(`Tabelas do baseline ausentes criadas: ${created.join(', ')}`);
+      }
       await query('INSERT IGNORE INTO schema_migrations(version) VALUES (?)', [baseline.version]);
     }
     await legacyRepair(query);
@@ -166,3 +190,4 @@ async function migrate({ log = console.log } = {}) {
 if (require.main === module) migrate().catch(error => { console.error(error.message); process.exitCode = 1; });
 module.exports = migrate;
 module.exports.splitStatements = splitStatements;
+module.exports.createMissingBaselineTables = createMissingBaselineTables;
