@@ -219,6 +219,31 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
         mail.sendEmail = original;
       }
     });
+
+    await t.test('D4: bot legado cria agendamento com profissional apto e livre (autoAssign)', async () => {
+      const appointments = require('../services/appointmentsService');
+      await A.as('POST', '/customers', { name: 'Cliente Bot', cpf: '39053344705', birthday: null, tel: '11988887777', image: '', email: '' });
+      const [customer] = await sql('SELECT id, name FROM customers WHERE company_id = ? ORDER BY id DESC LIMIT 1', [A.companyId]);
+      const svc = (await sql("INSERT INTO services (name, duration, value, cost, company_id, requires_location, accepts_quantity) VALUES ('Corte Bot', 30, 40, 10, ?, 0, 0)", [A.companyId])).insertId;
+      const orphan = (await sql("INSERT INTO services (name, duration, value, cost, company_id, requires_location, accepts_quantity) VALUES ('Sem Profissional', 30, 40, 10, ?, 0, 0)", [A.companyId])).insertId;
+      const p1 = (await A.as('POST', '/professionals', { name: 'Pro Um', service_ids: [svc] }, 201)).data;
+      const p2 = (await A.as('POST', '/professionals', { name: 'Pro Dois', service_ids: [svc] }, 201)).data;
+      const inactive = (await A.as('POST', '/professionals', { name: 'Pro Inativo', service_ids: [svc] }, 201)).data;
+      await A.as('DELETE', `/professionals/${inactive.id}`);
+
+      const book = (when, serviceId = svc, opts = { autoAssign: true }) => appointments.create(A.companyId, customer.id, customer.name, when, 30, '', [{ id: serviceId }], 'agendado', {}, opts);
+      const proOf = async id => (await sql('SELECT professional_id FROM appointments WHERE id = ?', [id]))[0].professional_id;
+
+      assert.equal(await proOf(await book('2030-01-07 10:00:00')), p1.id);
+      assert.equal(await proOf(await book('2030-01-07 10:00:00')), p2.id, 'primeiro ocupado: vai para o segundo');
+      await assert.rejects(book('2030-01-07 10:15:00'), error => error.code === 'slot_taken');
+      assert.equal(await proOf(await book('2030-01-07 10:30:00')), p1.id, 'horário seguinte volta ao primeiro');
+
+      // Serviço que nenhum profissional atende: regra legada (sem profissional).
+      assert.equal(await proOf(await book('2030-01-08 09:00:00', orphan)), null);
+      // Sem autoAssign o comportamento antigo continua (painel e demais chamadas).
+      assert.equal(await proOf(await book('2030-01-09 09:00:00', svc, {})), null);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (pool) await new Promise(resolve => pool.end(resolve));

@@ -57,3 +57,13 @@ O uso da quota é a soma de **membros** e **convites pendentes não vencidos**. 
 - **Aceite (`POST /companies/enter_company`):** o convite pendente já está contado, então aceitar não aumenta o uso. O aceite só é recusado com o mesmo `402` se a equipe já estiver **acima** do limite, por exemplo depois de um downgrade. Nesse caso o convite continua pendente.
   - Mudança de comportamento: antes, o aceite entrava sem checar a quota.
   - Os demais erros do aceite continuam `400`.
+
+## D4. Agendamento do bot sempre com profissional
+
+- Booking público (`/public/.../appointments`) e o bot F4 já escolhiam um profissional apto e livre. Isso não mudou.
+- O **bot legado do WhatsApp** (`/webhook`, `openaiService`) criava agendamentos com `professional_id = NULL`. Agora usa `autoAssign`:
+  - Candidatos: profissionais **ativos** que atendem **todos** os serviços do agendamento, em ordem de id.
+  - Fica com o primeiro sem conflito no horário.
+  - Se todos estão ocupados, a criação falha com o erro de horário ocupado (`slot_taken`, "Nenhum profissional disponível neste horário.").
+  - Se nenhum profissional atende os serviços, o agendamento continua sem profissional, como antes. Assim, empresas sem cadastro de profissionais não quebram.
+- O painel (`POST /appointments`) e as ferramentas do assistente (F5-B) **não mudaram**: sem `professional_id`, continuam sem profissional.

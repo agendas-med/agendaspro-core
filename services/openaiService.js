@@ -1188,6 +1188,7 @@ let openaiService = {
           finalServices,
           "agendado",
           addressData,
+          { autoAssign: true },
         );
 
         await functions.executeSql(
@@ -1256,6 +1257,7 @@ let openaiService = {
           finalServices,
           "agendado",
           addressData,
+          { autoAssign: true },
         );
         return "SUCESSO";
       }

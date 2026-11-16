@@ -101,13 +101,37 @@ async function ensureSlot(query, companyId, date, duration, excludedId = 0, { pr
     }
   }
 }
+// Follow-up 1: escolhe o primeiro profissional ativo que atende TODOS os serviços e está livre
+// (conflitos, bloqueios e expediente, se cadastrado). Sem nenhum profissional apto, devolve null
+// (regra legada: agendamento da empresa). Com aptos mas todos ocupados: slot_taken.
+async function pickProfessional(query, companyId, serviceIds, date, duration) {
+  const ids = [...new Set((serviceIds || []).map(Number).filter(Boolean))];
+  if (!ids.length) return null;
+  const candidates = await query(`SELECT p.id FROM professionals p
+    JOIN professional_services ps ON ps.professional_id = p.id AND ps.company_id = p.company_id
+    WHERE p.company_id = ? AND p.active = 1 AND ps.service_id IN (?)
+    GROUP BY p.id HAVING COUNT(DISTINCT ps.service_id) = ? ORDER BY p.id`, [companyId, ids, ids.length]);
+  if (!candidates.length) return null;
+  for (const candidate of candidates) {
+    try {
+      await ensureSlot(query, companyId, date, duration, 0, { professionalId: candidate.id, verified: true });
+      return candidate.id;
+    } catch (error) {
+      if (error?.code !== 'slot_taken') throw error;
+    }
+  }
+  throw slotTaken('Nenhum profissional disponível neste horário.');
+}
+
 const appointmentsService = {
-  async create(companyId, customerId, customerName, date, duration, observations, services, status, address = {}, { professionalId = null } = {}) {
+  // autoAssign: sem professionalId, escolhe um profissional apto e livre (bot legado do WhatsApp).
+  async create(companyId, customerId, customerName, date, duration, observations, services, status, address = {}, { professionalId = null, autoAssign = false } = {}) {
     return functions.executeTransaction(async query => {
       await query('SELECT id FROM companies WHERE id = ? FOR UPDATE', [companyId]);
       const items = await validateItems(query, companyId, customerId, services, address || {});
       const state = transition({}, status);
-      const professional = await assertProfessional(query, companyId, professionalId);
+      let professional = await assertProfessional(query, companyId, professionalId);
+      if (!professional && autoAssign && !state.canceled) professional = await pickProfessional(query, companyId, (services || []).map(s => s.id), date, duration);
       if (!state.canceled) await ensureSlot(query, companyId, date, duration, 0, { professionalId: professional, verified: true });
       const values = [companyId, customerId, customerName, date, duration, observations || '', state.checkin, state.checkout, state.canceled, state.payment_status, ...addressFields.map(field => address?.[field] || null), professional];
       const result = await query(`INSERT INTO appointments
@@ -227,5 +251,6 @@ const appointmentsService = {
 // Exportado para o bot reutilizar a mesma checagem de conflito dentro da transação.
 appointmentsService.ensureSlot = ensureSlot;
 appointmentsService.saveServices = saveServices;
+appointmentsService.pickProfessional = pickProfessional;
 appointmentsService.OCCUPYING_SQL = OCCUPYING_SQL;
 module.exports = appointmentsService;
