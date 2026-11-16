@@ -92,6 +92,8 @@ Corpo `{ rating: 1..5, comment? (máx. 500) }` → `{ ok: true }`; uma vez por s
 Só `audience=business`. Corpo `{ name, whatsapp, email?, segment? (padrão "não informado"), message?, consent: true }`
 → **201** `{ ok, reply }`. Grava em `leads` com `source="chat"` e `consent_at`; job `lead_notify`.
 Um por sessão; aplica os limites de `/public/leads` (por IP e por WhatsApp).
+Aceita sessão expirada há até `PUBLIC_CHAT_LEAD_GRACE_MIN` (padrão 30, teto 1440; follow-up 1); sessão
+encerrada (`/session/close`) continua 409 `session_closed`. A carência vale só para esta rota.
 
 ## Ordem de defesa por mensagem
 

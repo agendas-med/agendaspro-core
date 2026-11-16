@@ -28,7 +28,9 @@ const int = (name, fallback, min = 0) => {
 const config = () => ({
   ttlMs: int('PUBLIC_CHAT_SESSION_TTL_MIN', 60, 1) * 60000,
   // TTL deslizante: cada mensagem aceita estende a validade para agora + TTL, até exp original + este teto.
-  maxExtensionMs: int('PUBLIC_CHAT_SESSION_MAX_EXTENSION_MIN', 120, 0) * 60000,  maxMessages: int('PUBLIC_CHAT_SESSION_MAX_MESSAGES', 20, 1),
+  maxExtensionMs: int('PUBLIC_CHAT_SESSION_MAX_EXTENSION_MIN', 120, 0) * 60000,
+  // POST /lead aceito até X min depois de expirar (só o lead; mensagens não). Teto de 24 h.
+  leadGraceMs: Math.min(int('PUBLIC_CHAT_LEAD_GRACE_MIN', 30, 0), 1440) * 60000,  maxMessages: int('PUBLIC_CHAT_SESSION_MAX_MESSAGES', 20, 1),
   maxTokens: int('PUBLIC_CHAT_SESSION_MAX_TOKENS', 6000, 0),
   maxChars: Math.min(int('PUBLIC_CHAT_MESSAGE_MAX_CHARS', 500, 20), 2000),
   sessionsPerIpDay: int('PUBLIC_CHAT_SESSIONS_PER_IP_DAY', 10, 1),
@@ -195,7 +197,8 @@ async function createSession(body, { ip, now = Date.now() } = {}) {
 }
 
 // Bearer -> sessão do banco. 401 para token inválido/expirado (o cliente abre outra sessão).
-async function authenticate(authorization, { now = Date.now() } = {}) {
+// lead:true (só POST /lead) aceita até PUBLIC_CHAT_LEAD_GRACE_MIN depois da validade efetiva.
+async function authenticate(authorization, { now = Date.now(), lead = false } = {}) {
   assertEnabled();
   const match = /^Bearer\s+(\S{10,300})$/i.exec(String(authorization || ''));
   // HMAC primeiro (sem consulta ao banco para token forjado); só então a validade efetiva no banco.
@@ -203,7 +206,8 @@ async function authenticate(authorization, { now = Date.now() } = {}) {
   if (!parsed) throw fail(401, 'invalid_session', 'Sessão inválida. Abra o chat novamente.');
   const session = await loadSession(parsed.publicId);
   if (!session || Number(session.expires_at_ms) !== parsed.expMs) throw fail(401, 'invalid_session', 'Sessão inválida. Abra o chat novamente.');
-  if (effectiveExp(session) <= now) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
+  const grace = lead ? config().leadGraceMs : 0;
+  if (effectiveExp(session) + grace <= now) throw fail(401, 'session_expired', 'A conversa expirou. Abra o chat novamente.');
   return session;
 }
 

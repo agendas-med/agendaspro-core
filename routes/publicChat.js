@@ -15,7 +15,7 @@ const run = fn => async (req, res, next) => {
   }
 };
 
-const withSession = fn => run(async (req, res) => fn(await chat.authenticate(req.get('authorization')), req, res));
+const withSession = (fn, opts = {}) => run(async (req, res) => fn(await chat.authenticate(req.get('authorization'), opts), req, res));
 
 const wantsStream = req => /\btext\/event-stream\b/i.test(req.get('accept') || '') || req.query.stream === '1';
 
@@ -51,6 +51,8 @@ router.post('/message', withSession(async (session, req, res) => {
 
 router.post('/rating', withSession((session, req) => chat.rateSession(session, req.body)));
 
-router.post('/lead', withSession(async (session, req) => ({ __status: 201, __body: await chat.captureLead(session, req.body, { ip: req.ip }) })));
+// Lead aceita sessão recém-expirada (PUBLIC_CHAT_LEAD_GRACE_MIN): o visitante que demorou a
+// preencher o formulário não perde o contato. Só aqui; mensagens seguem exigindo sessão válida.
+router.post('/lead', withSession(async (session, req) => ({ __status: 201, __body: await chat.captureLead(session, req.body, { ip: req.ip }) }), { lead: true }));
 
 module.exports = router;

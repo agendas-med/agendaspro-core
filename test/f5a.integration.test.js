@@ -188,6 +188,18 @@ test('F5A: chat público (sessão, Turnstile, limites, FAQ, IA, injeção, break
       assert.equal(await codeOf(chatService.authenticate(`Bearer ${parts.join('.')}`, { now: E - 1000 })), '401:invalid_session');
     });
 
+    await t.test('lead aceita sessão recém-expirada (carência só no /lead)', async () => {
+      const s = await open();
+      const E = Number(s.session_token.split('.')[2]);
+      const bearer = `Bearer ${s.session_token}`;
+      const codeOf = p => p.then(() => 'ok', e => `${e.status}:${e.code}`);
+      assert.equal(await codeOf(chatService.authenticate(bearer, { now: E + 10 * 60000 })), '401:session_expired');
+      assert.equal(await codeOf(chatService.authenticate(bearer, { now: E + 31 * 60000, lead: true })), '401:session_expired', 'carência padrão de 30 min');
+      const session = await chatService.authenticate(bearer, { now: E + 10 * 60000, lead: true });
+      const out = await chatService.captureLead(session, { name: 'Visitante Tardio', whatsapp: '11 90000-0101', consent: true }, { ip: '198.51.100.8' });
+      assert.equal(out.ok, true);
+    });
+
     await t.test('CORS: Authorization permitido e Retry-After exposto', async () => {
       const pre = await call('OPTIONS', '/public/chat/message', { headers: { Origin: ORIGIN, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization,content-type' } });
       assert.equal(pre.status, 204);
