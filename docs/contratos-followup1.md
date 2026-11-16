@@ -206,3 +206,7 @@ Mensagens ganham `id` (inteiro, crescente na conversa) em `GET /assistant/conver
 ## A9. `Retry-After` exposto via CORS
 
 Já entregue no D6: o CORS global expõe `Retry-After` (`exposedHeaders`), então a UI no navegador consegue ler o header nos 429. O corpo continua trazendo `error.retry_after` (segundos) nos 429 do assistente, como no F5-B; use o corpo como fonte principal e o header como alternativa. Nenhuma mudança adicional.
+
+## Verificação
+
+- Suíte completa em série (`node --test --test-concurrency=1`) contra MariaDB 11.4 descartável: 207/207. Testes do adendo do assistente em `test/followup1-assistant.integration.test.js` (9 subtestes).
