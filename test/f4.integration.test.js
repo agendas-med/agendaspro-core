@@ -425,6 +425,26 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       assert.deepEqual((await B.as('GET', '/whatsapp/conversations?filter=waiting')).data, [], 'filtro respeita a empresa');
       await A.as('GET', '/whatsapp/conversations?filter=outro', undefined, 400);
     });
+
+    await t.test('follow-up 1: summary e não lidas', async () => {
+      const sum = async ctx => (await ctx.as('GET', '/whatsapp/conversations/summary')).data;
+      const before = await sum(A);
+      assert.ok(before.waiting >= 1 && before.assumed >= 1 && before.mine >= 1 && before.opted_out >= 1);
+      assert.equal(before.total, before.bot + before.human);
+      const conv = (await A.as('GET', `/whatsapp/conversations/${fu.wait}`)).data;
+      assert.ok(conv.unread_count >= 2, 'mensagens recebidas contam como não lidas');
+      const read = (await A.as('POST', `/whatsapp/conversations/${fu.wait}/read`)).data;
+      assert.equal(read.unread_count, 0);
+      const after = await sum(A);
+      assert.equal(after.unread_conversations, before.unread_conversations - 1);
+      await say(waWait, { text: 'oi de novo' });
+      assert.equal((await A.as('GET', `/whatsapp/conversations/${fu.wait}`)).data.unread_count, 1);
+      await sql("DELETE FROM usage_counters WHERE company_id = ? AND metric = 'whatsapp_monthly_messages'", [A.companyId]); // testes anteriores esgotam a cota
+      await A.as('POST', `/whatsapp/conversations/${fu.wait}/messages`, { text: 'Já vou te atender' }, 201);
+      assert.equal((await A.as('GET', `/whatsapp/conversations/${fu.wait}`)).data.unread_count, 0, 'responder marca como lida');
+      await B.as('POST', `/whatsapp/conversations/${fu.wait}/read`, undefined, 404);
+      assert.equal((await sum(B)).waiting, 0);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));

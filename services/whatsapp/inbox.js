@@ -21,10 +21,15 @@ function presentConversation(row) {
     last_message_at: row.last_message_wall || null,
     window_open: Number(row.window_open) === 1,
     last_message: row.last_body !== undefined ? { body: row.last_body, direction: row.last_direction, author: row.last_author } : null,
+    unread_count: Number(row.unread_count) || 0,
   };
 }
 
-const CONV_FIELDS = `c.id, c.mode, c.state, c.assigned_user_id, ct.wa_id, ct.profile_name, ct.opted_out_at, ${WINDOW_SQL} AS window_open,
+// Não lidas (follow-up 1): recebidas acima do marcador da conversa (compartilhado pela equipe).
+const UNREAD_SQL = `(SELECT COUNT(*) FROM whatsapp_messages u WHERE u.conversation_id = c.id AND u.company_id = c.company_id
+  AND u.direction = 'in' AND u.id > COALESCE(c.last_read_message_id, 0))`;
+
+const CONV_FIELDS = `c.id, c.mode, c.state, c.assigned_user_id, ct.wa_id, ct.profile_name, ct.opted_out_at, ${WINDOW_SQL} AS window_open, ${UNREAD_SQL} AS unread_count,
   DATE_FORMAT(c.handoff_at, '%Y-%m-%d %H:%i:%s') AS handoff_at_wall, DATE_FORMAT(c.last_inbound_at, '%Y-%m-%d %H:%i:%s') AS last_inbound_wall,
   DATE_FORMAT(c.last_message_at, '%Y-%m-%d %H:%i:%s') AS last_message_wall`;
 
@@ -49,6 +54,30 @@ async function listConversations(companyId, { mode, assigned_to_me: mine, filter
     FROM whatsapp_conversations c JOIN whatsapp_contacts ct ON ct.id = c.contact_id
     WHERE ${where.join(' AND ')} ORDER BY c.mode = 'human' DESC, c.last_message_at DESC, c.id DESC LIMIT ? OFFSET ?`, [...params, limit, offset]);
   return rows.map(presentConversation);
+}
+
+// Contagens para abas/badges (follow-up 1). "mine" = assumidas pelo usuário da sessão.
+async function summary(companyId, userId) {
+  const [row] = await functions.executeSql(`SELECT COUNT(*) AS total, SUM(x.mode = 'bot') AS bot, SUM(x.mode = 'human') AS human,
+      SUM(x.mode = 'human' AND x.assigned_user_id IS NULL) AS waiting, SUM(x.mode = 'human' AND x.assigned_user_id IS NOT NULL) AS assumed,
+      SUM(x.assigned_user_id <=> ?) AS mine, SUM(x.opted_out) AS opted_out,
+      SUM(x.unread_count > 0) AS unread_conversations, SUM(x.unread_count) AS unread_messages
+    FROM (SELECT c.mode, c.assigned_user_id, ct.opted_out_at IS NOT NULL AS opted_out, ${UNREAD_SQL} AS unread_count
+      FROM whatsapp_conversations c JOIN whatsapp_contacts ct ON ct.id = c.contact_id WHERE c.company_id = ?) x`, [userId, companyId]);
+  const n = key => Number(row?.[key]) || 0;
+  return {
+    total: n('total'), bot: n('bot'), human: n('human'), waiting: n('waiting'), assumed: n('assumed'), mine: n('mine'),
+    opted_out: n('opted_out'), unread_conversations: n('unread_conversations'), unread_messages: n('unread_messages'),
+  };
+}
+
+// Marca como lida até a última mensagem atual (nunca volta o marcador).
+async function markRead(companyId, conversationId) {
+  await getConversation(companyId, conversationId);
+  await functions.executeSql(`UPDATE whatsapp_conversations c SET c.last_read_message_id = GREATEST(COALESCE(c.last_read_message_id, 0),
+      COALESCE((SELECT MAX(m.id) FROM whatsapp_messages m WHERE m.conversation_id = c.id AND m.company_id = c.company_id), 0))
+    WHERE c.id = ? AND c.company_id = ?`, [conversationId, companyId]);
+  return getConversation(companyId, conversationId);
 }
 
 async function getConversation(companyId, id) {
@@ -86,6 +115,7 @@ async function send(companyId, conversationId, userId, body) {
   // Atendente falou: a conversa fica com o humano (o bot não responde por cima).
   await functions.executeSql(`UPDATE whatsapp_conversations SET mode = 'human', assigned_user_id = COALESCE(assigned_user_id, ?), handoff_at = COALESCE(handoff_at, NOW())
     WHERE id = ? AND company_id = ?`, [userId, conversationId, companyId]);
+  await markRead(companyId, conversationId); // quem responde leu a conversa
   const [row] = await functions.executeSql(`SELECT id, direction, author, user_id, type, body, template_name, status, error_code,
       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at FROM whatsapp_messages WHERE id = ? AND company_id = ?`, [result.id, companyId]);
   return row;
@@ -165,4 +195,4 @@ async function syncTemplates() {
   return { remote: remote.length, updated };
 }
 
-module.exports = { listConversations, getConversation, listMessages, assume, release, send, templates, usage, status, updateConfig, syncTemplates };
+module.exports = { listConversations, summary, markRead, getConversation, listMessages, assume, release, send, templates, usage, status, updateConfig, syncTemplates };
