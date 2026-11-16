@@ -55,13 +55,27 @@ async function loadConversation(ctx, publicId) {
 
 async function getConversation(ctx, publicId) {
   const conv = await loadConversation(ctx, publicId);
-  const messages = await functions.executeSql('SELECT role, content, intent, source, created_at FROM assistant_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 100', [conv.id]);
+  const messages = await functions.executeSql('SELECT id, role, content, intent, source, created_at FROM assistant_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 100', [conv.id]);
   const pending = await functions.executeSql("SELECT public_id, tool, summary, risk, expires_at_ms FROM assistant_actions WHERE conversation_id = ? AND company_id = ? AND user_id = ? AND status = 'pending' AND expires_at_ms > ?", [conv.id, ctx.companyId, ctx.userId, Date.now()]);
   return {
     ...publicConv(conv),
     messages: messages.reverse(),
     pending_actions: pending.map(a => ({ action_id: a.public_id, tool: a.tool, summary: a.summary, risk: a.risk, expires_at: new Date(Number(a.expires_at_ms)).toISOString() })),
   };
+}
+
+// Follow-up 1: exclusão definitiva da conversa do próprio usuário. Mensagens caem por FK (CASCADE);
+// ações pendentes dela expiram na mesma transação (não há FK em assistant_actions). Auditoria fica.
+async function deleteConversation(ctx, publicId) {
+  const conv = await loadConversation(ctx, publicId);
+  const deleted = await functions.executeTransaction(async q => {
+    await q("UPDATE assistant_actions SET status = 'expired' WHERE conversation_id = ? AND company_id = ? AND user_id = ? AND status = 'pending'", [conv.id, ctx.companyId, ctx.userId]);
+    const r = await q('DELETE FROM assistant_conversations WHERE id = ? AND company_id = ? AND user_id = ?', [conv.id, ctx.companyId, ctx.userId]);
+    return r.affectedRows;
+  });
+  if (!deleted) throw coded(404, 'conversation_not_found', 'Conversa não encontrada.');
+  await audit.log({ companyId: ctx.companyId, userId: ctx.userId, event: 'conversation_deleted', detail: `messages:${Number(conv.message_count) || 0}` });
+  return { id: conv.public_id, deleted: true };
 }
 
 // ---------- status (follow-up 1) ----------
@@ -305,7 +319,7 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
   // Contam: templates determinísticos, respostas da IA, propostas e template após falha de redação.
   if (out.source === 'fallback') await refundInteraction(ctx.companyId, usage).catch(() => {});
 
-  await functions.executeSql('INSERT INTO assistant_messages (conversation_id, company_id, role, content, intent, source) VALUES (?, ?, ?, ?, ?, ?)', [conv.id, ctx.companyId, 'assistant', out.reply, out.intent || null, out.source]);
+  const replyRow = await functions.executeSql('INSERT INTO assistant_messages (conversation_id, company_id, role, content, intent, source) VALUES (?, ?, ?, ?, ?, ?)', [conv.id, ctx.companyId, 'assistant', out.reply, out.intent || null, out.source]);
   const summary = `${conv.summary ? `${conv.summary} | ` : ''}${out.intent || 'conversa'}: ${guard.oneLine(text, 60)}`.slice(-600);
   await functions.executeSql('UPDATE assistant_conversations SET message_count = message_count + 2, summary = ?, title = COALESCE(title, ?) WHERE id = ?', [summary, guard.oneLine(text, 80), conv.id]);
   await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'message', tool: out.tool || null, result: out.source, detail: out.intent || null, tokens: out.tokens || 0 });
@@ -315,6 +329,9 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
     reply: out.reply, source: out.source, degraded: out.source === 'fallback' || out.degraded === true,
     usage: { interactions_used: usage.used, interactions_limit: usage.limit, counted: usage.counted !== false },
   };
+  // Follow-up 1: ids das duas mensagens gravadas (mesmos ids de GET /assistant/conversations/:id).
+  if (userRow?.insertId) response.user_message_id = Number(userRow.insertId);
+  if (replyRow?.insertId) response.message_id = Number(replyRow.insertId);
   if (out.citations?.length) response.citations = out.citations;
   if (out.proposed_actions?.length) response.proposed_actions = out.proposed_actions;
   if (truncated) response.truncated = true;
@@ -396,4 +413,4 @@ async function answer(ctx, text, history, summary, injection) {
   };
 }
 
-module.exports = { status, createConversation,listConversations, getConversation, sendMessage, consumeInteraction, cleanOutput, CLASSIFY_SCHEMA, classifyValidator, CANARY, _answer: answer };
+module.exports = { deleteConversation, status, createConversation,listConversations, getConversation, sendMessage, consumeInteraction, cleanOutput, CLASSIFY_SCHEMA, classifyValidator, CANARY, _answer: answer };

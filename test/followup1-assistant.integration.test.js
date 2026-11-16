@@ -336,6 +336,31 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
       assert.equal(ok.data.data.proposed_actions?.[0]?.tool, 'create_service');
       assert.equal(await usedNow(A), before + 1, 'proposta criada conta');
     });
+    await t.test('8: DELETE da conversa e id nas mensagens', async () => {
+      const conv = await newConv(oa);
+      const sent = (await oa.expect(200, 'POST', `/assistant/conversations/${conv}/messages`, { message: 'agenda de hoje' })).data.data;
+      assert.ok(Number.isInteger(sent.user_message_id) && sent.message_id > sent.user_message_id);
+      const got = (await oa.expect(200, 'GET', `/assistant/conversations/${conv}`)).data.data;
+      assert.deepEqual(got.messages.map(m => m.id), [sent.user_message_id, sent.message_id]);
+      route('create_service', { name: 'Drenagem', value: 90, duration: 50 });
+      const proposal = (await oa.expect(200, 'POST', `/assistant/conversations/${conv}/messages`, { message: 'crie o serviço drenagem' })).data.data.proposed_actions[0];
+      route('none');
+
+      assert.deepEqual([(await ma.call('DELETE', `/assistant/conversations/${conv}`)).status, errCode(await ma.call('DELETE', `/assistant/conversations/${conv}`))], [404, 'conversation_not_found'], 'outro usuário');
+      assert.equal(errCode(await ob.call('DELETE', `/assistant/conversations/${conv}`)), 'conversation_not_found', 'outra empresa');
+      assert.equal(errCode(await oa.call('DELETE', '/assistant/conversations/zz')), 'conversation_not_found');
+      const [row] = await sql('SELECT id FROM assistant_conversations WHERE public_id = ?', [conv]);
+
+      assert.deepEqual((await oa.expect(200, 'DELETE', `/assistant/conversations/${conv}`)).data.data, { id: conv, deleted: true });
+      assert.equal(errCode(await oa.call('GET', `/assistant/conversations/${conv}`)), 'conversation_not_found');
+      assert.equal(errCode(await oa.call('DELETE', `/assistant/conversations/${conv}`)), 'conversation_not_found', 'idempotência: segunda vez 404');
+      assert.equal((await sql('SELECT COUNT(*) AS n FROM assistant_messages WHERE conversation_id = ?', [row.id]))[0].n, 0, 'mensagens apagadas');
+      assert.ok(!(await oa.expect(200, 'GET', '/assistant/conversations')).data.data.some(c => c.id === conv));
+      assert.equal((await sql('SELECT status FROM assistant_actions WHERE public_id = ?', [proposal.action_id]))[0].status, 'expired');
+      const late = await oa.call('POST', `/assistant/actions/${proposal.action_id}/confirm`, { confirm_token: proposal.confirm_token });
+      assert.deepEqual([late.status, errCode(late)], [410, 'action_expired'], 'proposta da conversa apagada não executa');
+      assert.equal((await sql("SELECT COUNT(*) AS n FROM assistant_audit WHERE company_id = ? AND event = 'conversation_deleted'", [A]))[0].n, 1);
+    });
 
   } finally {
     require('../services/ai/provider').setProvider(null);

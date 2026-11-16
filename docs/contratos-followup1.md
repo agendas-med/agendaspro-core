@@ -187,3 +187,19 @@ Quando a mensagem termina em erro de proposta — 402 `plan_upgrade_required` (p
 - registra `message_denied` na auditoria (inalterado).
 
 Proposta criada com sucesso continua contando 1 interação. O corpo de erro é o mesmo do F5-B.
+
+## A8. Excluir conversa e `id` nas mensagens
+
+**Novo** `DELETE /assistant/conversations/:id` (membro; só a própria conversa):
+
+- 200 `{ data: { id, deleted: true } }`. Exclusão definitiva: as mensagens são apagadas (FK `ON DELETE CASCADE`).
+- Ações `pending` daquela conversa passam a `expired` na mesma transação; confirmar depois responde 410 `action_expired`.
+- A auditoria (`conversation_deleted`, só contagem, sem texto) e o histórico de ações já executadas permanecem.
+- Conversa de outro usuário/empresa, inexistente, já excluída ou id malformado: 404 `conversation_not_found`.
+- A exclusão não devolve cota.
+
+Mensagens ganham `id` (inteiro, crescente na conversa) em `GET /assistant/conversations/:id` (`messages[].id`). A resposta de `POST .../messages` ganha `user_message_id` e `message_id` (pergunta e resposta gravadas, os mesmos ids do GET). Em erro (A7) nada é gravado e esses campos não existem. Tudo aditivo.
+
+## A9. `Retry-After` exposto via CORS
+
+Já entregue no D6: o CORS global expõe `Retry-After` (`exposedHeaders`), então a UI no navegador consegue ler o header nos 429. O corpo continua trazendo `error.retry_after` (segundos) nos 429 do assistente, como no F5-B; use o corpo como fonte principal e o header como alternativa. Nenhuma mudança adicional.

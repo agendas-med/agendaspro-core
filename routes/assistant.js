@@ -73,6 +73,7 @@ router.use(enabled);
 router.post('/conversations', ...member, handle(async req => ({ __status: 201, data: await assistant.createConversation(ctx(req)) })));
 router.get('/conversations', ...member, handle(req => assistant.listConversations(ctx(req))));
 router.get('/conversations/:id', ...member, conversationId, handle(req => assistant.getConversation(ctx(req), req.params.id)));
+router.delete('/conversations/:id', ...member, conversationId, handle(req => assistant.deleteConversation(ctx(req), req.params.id)));
 router.post('/conversations/:id/messages', ...member, conversationId, validateBody(messageSchema),
   handle(retryAfter(req => assistant.sendMessage(ctx(req), req.params.id, req.body.message))));
 
