@@ -29,6 +29,10 @@ router.get('/:id', ...member, paramId, handle(req => professionals.get(req.compa
 // Criação respeita a quota max_professionals do plano (402 plan_upgrade_required).
 router.post('/', ...admin, validateBody(createSchema), handle(async req => ({ __status: 201, data: await professionals.create(req.companyId, req.body) })));
 router.patch('/:id', ...admin, paramId, validateBody(updateSchema), handle(req => professionals.update(req.companyId, req.params.id, req.body)));
+// Follow-up 1: foto enviada ao core (banco; ver contratos-followup1.md). {image: "data:image/png;base64,..."}.
+const photoSchema = Joi.object({ image: Joi.string().max(1500000).required() });
+router.post('/:id/photo', ...admin, paramId, validateBody(photoSchema), handle(req => professionals.setPhoto(req.companyId, req.params.id, req.body.image)));
+router.delete('/:id/photo', ...admin, paramId, handle(req => professionals.removePhoto(req.companyId, req.params.id)));
 router.delete('/:id', ...admin, paramId, handle(async req => { await professionals.deactivate(req.companyId, req.params.id); return { deactivated: true }; }));
 
 router.paramId = paramId;

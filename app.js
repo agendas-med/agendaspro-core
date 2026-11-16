@@ -71,6 +71,7 @@ app.use(cors({
 // Limite de corpo: 1 MB em geral; cadastro de clientes aceita imagem base64 (até 6 MB).
 const bodyLimit = process.env.BODY_LIMIT || '1mb';
 app.use('/customers', express.json({ limit: process.env.UPLOAD_BODY_LIMIT || '6mb' }));
+app.use(/^\/professionals\/\d+\/photo$/, express.json({ limit: '2mb' })); // foto do profissional (≤ 1 MB decodificada)
 app.use(express.json({ limit: bodyLimit }));
 app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
 

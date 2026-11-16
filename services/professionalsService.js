@@ -40,6 +40,27 @@ function present(row, services = []) {
 
 const FIELDS = ['name', 'email', 'phone', 'photo_url', 'color', 'user_id'];
 
+// Foto: só PNG/JPEG/WebP, reconhecidos pelos primeiros bytes (o tipo declarado tem de bater). SVG/GIF recusados.
+const PHOTO_PATH = '/files/professional-photo';
+const photoMaxBytes = () => Number(process.env.PROFESSIONAL_PHOTO_MAX_BYTES) || 1024 * 1024;
+function sniffImage(buf) {
+  if (buf.length >= 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+function parsePhoto(dataUrl) {
+  const match = /^data:(image\/(?:png|jpeg|jpg|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(dataUrl || ''));
+  if (!match) throw new HttpError(400, 'Envie a imagem como data URL base64 (PNG, JPEG ou WebP).');
+  const bytes = Buffer.from(match[2], 'base64');
+  if (!bytes.length || bytes.length > photoMaxBytes()) throw new HttpError(413, `Imagem acima de ${Math.round(photoMaxBytes() / 1024)} KB.`);
+  const mime = sniffImage(bytes);
+  const declared = match[1] === 'image/jpg' ? 'image/jpeg' : match[1];
+  if (!mime || mime !== declared) throw new HttpError(400, 'O conteúdo não é uma imagem PNG, JPEG ou WebP válida.');
+  return { mime, bytes, sha256: require('crypto').createHash('sha256').update(bytes).digest('hex') };
+}
+const photoUrl = (id, sha256) => `${(process.env.PUBLIC_API_URL || '').replace(/\/$/, '')}${PHOTO_PATH}/${id}/${sha256.slice(0, 16)}`;
+
 const professionalsService = {
   async list(companyId, { includeInactive = false } = {}) {
     const rows = await functions.executeSql(`SELECT * FROM professionals WHERE company_id = ?${includeInactive ? '' : ' AND active = 1'} ORDER BY name, id`, [companyId]);
@@ -87,6 +108,34 @@ const professionalsService = {
       await setServices(query, companyId, id, data.service_ids);
     });
     return this.get(companyId, id);
+  },
+
+  // ---- Foto (follow-up 1): data URL base64 -> valida pelos bytes (magic number) -> banco ----
+  async setPhoto(companyId, id, dataUrl) {
+    const image = parsePhoto(dataUrl);
+    await functions.executeTransaction(async query => {
+      await getProfessional(query, companyId, id, { lock: true });
+      await query(`INSERT INTO professional_photos (professional_id, company_id, mime, bytes, sha256) VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE mime = VALUES(mime), bytes = VALUES(bytes), sha256 = VALUES(sha256)`, [id, companyId, image.mime, image.bytes, image.sha256]);
+      await query('UPDATE professionals SET photo_url = ? WHERE id = ? AND company_id = ?', [photoUrl(id, image.sha256), id, companyId]);
+    });
+    return this.get(companyId, id);
+  },
+
+  async removePhoto(companyId, id) {
+    await functions.executeTransaction(async query => {
+      await getProfessional(query, companyId, id, { lock: true });
+      await query('DELETE FROM professional_photos WHERE professional_id = ? AND company_id = ?', [id, companyId]);
+      await query('UPDATE professionals SET photo_url = NULL WHERE id = ? AND company_id = ? AND photo_url LIKE ?', [id, companyId, `%${PHOTO_PATH}/${id}/%`]);
+    });
+    return this.get(companyId, id);
+  },
+
+  // Leitura pública (a foto já aparece na página pública): exige o hash da versão atual.
+  async photo(id, hash) {
+    const [row] = await functions.executeSql('SELECT mime, bytes, sha256 FROM professional_photos WHERE professional_id = ?', [id]);
+    if (!row || row.sha256.slice(0, 16) !== hash) return null;
+    return row;
   },
 
   // Desativa (não apaga): agendamentos antigos mantêm o vínculo.
