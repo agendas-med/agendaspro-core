@@ -96,6 +96,7 @@ app.use("/availability-rules", require('./routes/availabilityRules'));
 app.use("/time-blocks", require('./routes/timeBlocks'));
 app.use("/public-page", require('./routes/publicPage'));
 app.use("/whatsapp", require('./routes/whatsapp'));
+app.use("/assistant", require('./routes/assistant'));
 app.get('/health/deep', require('./middleware/requireToken')('ADMIN_TOKEN'), internalRoute.deepHealth);
 
 // Arquivos estáticos em /static. O prefixo /public é da API pública (F3).

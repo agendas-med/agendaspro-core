@@ -16,7 +16,10 @@ const admin = [login, validate.validateCompanyAccess, requireAdmin];
 // Erros com código estável (plano/billing) saem como { error: { code, message, ... } }.
 const CODED = new Set(['plan_upgrade_required', 'billing_disabled', 'slot_unavailable',
   // F4 WhatsApp (painel)
-  'window_closed', 'opted_out', 'template_unavailable', 'template_params', 'whatsapp_not_configured', 'send_failed', 'conversation_not_found', 'conversation_busy']);
+  'window_closed', 'opted_out', 'template_unavailable', 'template_params', 'whatsapp_not_configured', 'send_failed', 'conversation_not_found', 'conversation_busy',
+  // F5-core-B assistente
+  'assistant_disabled', 'rate_limited', 'assistant_budget_exceeded', 'assistant_forbidden', 'assistant_tool_error', 'assistant_actions_disabled',
+  'action_not_found', 'invalid_confirm_token', 'action_expired', 'action_already_processed', 'action_failed']);
 function respondError(req, res, error) {
   if (error && CODED.has(error.code) && Number(error.status) >= 400) {
     return res.status(Number(error.status)).send({ error: { code: error.code, message: error.message, ...(error.details || {}) } });
