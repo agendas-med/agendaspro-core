@@ -141,22 +141,30 @@ async function createSession(body, { ip, now = Date.now() } = {}) {
   if (value.audience !== 'customer') delete value.company_slug;
   secret();
   const cfg = config();
-  await limit(`public:chat-session|${ip}`, 86400, cfg.sessionsPerIpDay);
+  // A cota de sessões por IP/dia só é consumida por sessão criada: Turnstile recusado ou slug
+  // inexistente não gastam cota do visitante legítimo (peek antes, hit atômico no fim).
+  const sessionKey = `public:chat-session|${ip}`;
+  const used = await peek(sessionKey, 86400);
+  if (used.hits >= cfg.sessionsPerIpDay) throw fail(429, 'rate_limited', 'Muitas tentativas. Aguarde um pouco e tente novamente.', { retryAfter: Math.max(1, Math.ceil((used.resetAt.getTime() - Date.now()) / 1000)) });
   await turnstile.verify(value.turnstile_token, ip);
 
   let companyId = null;
   let company = null;
   if (value.company_slug) {
-    const miss = await peek(`public:slugmiss|${ip}`, 3600);
+    // Balde próprio do chat (não o de /public/b/:slug): 404 do chat não bloqueia a página de
+    // reserva do mesmo IP e vice-versa. Só passa daqui quem já resolveu o Turnstile.
+    const missKey = `public:chat-slugmiss|${ip}`;
+    const miss = await peek(missKey, 3600);
     if (miss.hits >= (Number(process.env.PUBLIC_SLUG_MISS_MAX) || 20)) throw fail(429, 'rate_limited', 'Muitas tentativas. Aguarde um pouco e tente novamente.', { retryAfter: Math.max(1, Math.ceil((miss.resetAt.getTime() - Date.now()) / 1000)) });
     const found = await booking.companyBySlug(value.company_slug);
     if (!found) {
-      await hit(`public:slugmiss|${ip}`, 3600).catch(() => {});
+      await hit(missKey, 3600).catch(() => {});
       throw fail(404, 'not_found', 'Página não encontrada.');
     }
     company = found.company;
     companyId = company.id;
   }
+  await limit(sessionKey, 86400, cfg.sessionsPerIpDay);
 
   const publicId = crypto.randomBytes(16).toString('hex');
   const expMs = now + cfg.ttlMs;

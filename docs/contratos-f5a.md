@@ -22,7 +22,7 @@ A empresa vem **só** do `company_slug` informado na criação (gravado na sess�
 | `service_unavailable` | 503 | Turnstile sem segredo; sem `PUBLIC_CHAT_TOKEN_SECRET` e sem `PUBLIC_BOOKING_TOKEN_SECRET` |
 | `validation_error` | 400 | Joi (campos desconhecidos, `audience` ausente/inválido) |
 | `turnstile_failed` | 400 | token Turnstile ausente/recusado |
-| `not_found` | 404 | `company_slug` inexistente ou página desligada (conta no anti-enumeração) |
+| `not_found` | 404 | `company_slug` inexistente ou página desligada (conta no anti-enumeração do chat, `public:chat-slugmiss`, separado do de `/public/b/:slug`; não gasta a cota de sessões do IP) |
 | `invalid_session` · `session_expired` | 401 | token |
 | `session_blocked` | 403 | sessão bloqueada por tentativas de injeção |
 | `message_too_long` | 413 | mensagem acima de `PUBLIC_CHAT_MESSAGE_MAX_CHARS` (padrão 500) |
@@ -41,7 +41,8 @@ Corpo `{ audience: "business"|"customer" (obrigatório), turnstile_token, compan
 `company_slug` só vale com `audience=customer` (chat da página `/b/{slug}`); com `audience=business`
 é ignorado (follow-up 1; antes era 400) e a sessão sai com `company:null`.
 → **201** `{ session_token, expires_at, limits:{max_messages,max_tokens,max_chars}, audience, company:{name,slug}|null }`.
-Limite `PUBLIC_CHAT_SESSIONS_PER_IP_DAY` (padrão 10).
+Limite `PUBLIC_CHAT_SESSIONS_PER_IP_DAY` (padrão 10), contado só em sessões criadas (Turnstile recusado
+e 404 de slug não consomem).
 
 ### `POST /public/chat/message`
 Corpo `{ message (1..max_chars), client_msg_id? (^[A-Za-z0-9_-]{8,64}$) }`.

@@ -140,6 +140,23 @@ test('F5A: chat público (sessão, Turnstile, limites, FAQ, IA, injeção, break
       assert.equal(row.company_id, null);
     });
 
+    await t.test('404 de slug e Turnstile recusado não gastam a cota de sessões do IP', async () => {
+      const ip = `203.0.113.${process.pid % 200}`;
+      const prev = process.env.PUBLIC_CHAT_SESSIONS_PER_IP_DAY;
+      process.env.PUBLIC_CHAT_SESSIONS_PER_IP_DAY = '2';
+      try {
+        const codeOf = p => p.then(() => 'ok', e => `${e.status}:${e.code}`);
+        for (let i = 0; i < 4; i++) assert.equal(await codeOf(chatService.createSession({ audience: 'customer', turnstile_token: 'ok-token', company_slug: `nao-existe-${i}` }, { ip })), '404:not_found');
+        assert.equal(await codeOf(chatService.createSession({ audience: 'business', turnstile_token: 'forjado' }, { ip })), '400:turnstile_failed');
+        assert.equal(await codeOf(chatService.createSession({ audience: 'customer', turnstile_token: 'ok-token', company_slug: slug }, { ip })), 'ok');
+        assert.equal(await codeOf(chatService.createSession({ audience: 'business', turnstile_token: 'ok-token' }, { ip })), 'ok');
+        assert.equal(await codeOf(chatService.createSession({ audience: 'business', turnstile_token: 'ok-token' }, { ip })), '429:rate_limited');
+        const { peek } = require('../middleware/rateLimit');
+        assert.equal((await peek(`public:chat-slugmiss|${ip}`, 3600)).hits, 4);
+        assert.equal((await peek(`public:slugmiss|${ip}`, 3600)).hits, 0, 'balde da página de reserva intacto');
+      } finally { process.env.PUBLIC_CHAT_SESSIONS_PER_IP_DAY = prev; }
+    });
+
     await t.test('token inválido ou adulterado: 401', async () => {
       const s = await open();
       assert.equal((await say(null, 'oi')).status, 401);
