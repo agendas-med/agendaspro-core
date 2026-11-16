@@ -461,6 +461,28 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
       assert.equal(st.plan, (await A.as('GET', '/whatsapp/usage')).data.plan);
       assert.ok(typeof st.plan === 'string' && st.plan.length > 0);
     });
+
+    await t.test('follow-up 1: assumir não toma conversa de outro atendente', async () => {
+      const email = `membro-${process.pid}@agendaspro.test`;
+      const password = `senha-m-${secret()}`;
+      const reg = await expect(200, 'POST', '/users/register', { body: { name: 'Membro A', email, password } });
+      const memberToken = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj.jwtToken;
+      await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [A.companyId, reg.returnObj.id]);
+      const M = (method, path, body, expected = 200) => expect(expected, method, path, { body, auth: memberToken, company: A.companyId });
+      // fu.taken está com o dono (A): o membro recebe 409 e não muda nada.
+      const conflict = await M('POST', `/whatsapp/conversations/${fu.taken}/assume`, undefined, 409);
+      assert.equal(conflict.error.code, 'conversation_assigned');
+      assert.equal(conflict.error.assigned_user_name, 'Dono a');
+      assert.equal((await M('POST', `/whatsapp/conversations/${fu.taken}/assume`, { force: true }, 403)).error.code, 'admin_required');
+      assert.equal((await A.as('GET', `/whatsapp/conversations/${fu.taken}`)).data.assigned_user_name, 'Dono a');
+      // Livre: o membro assume; o dono (admin) só toma com force.
+      await A.as('POST', `/whatsapp/conversations/${fu.stop}/release`);
+      assert.equal((await M('POST', `/whatsapp/conversations/${fu.stop}/assume`)).data.assigned_user_name, 'Membro A');
+      assert.equal((await M('POST', `/whatsapp/conversations/${fu.stop}/assume`)).data.assigned_user_name, 'Membro A', 'reassumir a própria é idempotente');
+      assert.equal((await A.as('POST', `/whatsapp/conversations/${fu.stop}/assume`, undefined, 409)).error.code, 'conversation_assigned');
+      assert.equal((await A.as('POST', `/whatsapp/conversations/${fu.stop}/assume`, { force: true })).data.assigned_user_name, 'Dono a');
+      await A.as('POST', `/whatsapp/conversations/${fu.stop}/assume`, { force: 'x' }, 400);
+    });
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (stub) await new Promise(resolve => stub.close(resolve));

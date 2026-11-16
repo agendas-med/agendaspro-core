@@ -100,11 +100,18 @@ async function listMessages(companyId, conversationId, { before_id: beforeId, af
   return afterId ? rows : rows.reverse();
 }
 
-async function assume(companyId, conversationId, userId) {
-  const result = await functions.executeSql(`UPDATE whatsapp_conversations SET mode = 'human', assigned_user_id = ?, handoff_at = NOW()
-    WHERE id = ? AND company_id = ?`, [userId, conversationId, companyId]);
-  if (!result.affectedRows) throw busy();
-  return getConversation(companyId, conversationId);
+// Follow-up 1: não toma a conversa de outro atendente. Condição no próprio UPDATE (atômico);
+// `force` só para admin (a rota checa o papel antes de passar force=true).
+async function assume(companyId, conversationId, userId, { force = false } = {}) {
+  await functions.executeSql(`UPDATE whatsapp_conversations SET mode = 'human', assigned_user_id = ?, handoff_at = NOW()
+    WHERE id = ? AND company_id = ? AND (? OR assigned_user_id IS NULL OR assigned_user_id = ?)`, [userId, conversationId, companyId, force ? 1 : 0, userId]);
+  const conv = await getConversation(companyId, conversationId);
+  if (Number(conv.assigned_user_id) !== Number(userId)) {
+    throw Object.assign(new Error('Conversa já assumida por outro atendente.'), {
+      status: 409, code: 'conversation_assigned', details: { assigned_user_id: conv.assigned_user_id, assigned_user_name: conv.assigned_user_name },
+    });
+  }
+  return conv;
 }
 
 async function release(companyId, conversationId) {

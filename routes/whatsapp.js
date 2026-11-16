@@ -3,6 +3,7 @@ const Joi = require('joi');
 const router = express.Router();
 const { member, admin, handle, validateBody, validateQuery } = require('../middleware/tenant');
 const inbox = require('../services/whatsapp/inbox');
+const companiesService = require('../services/companiesService');
 
 // Painel WhatsApp (F4). Empresa sempre da sessão (req.companyId). Atendimento: membro;
 // configuração: admin.
@@ -33,6 +34,7 @@ const sendSchema = Joi.object({
   template: Joi.string().trim().pattern(/^[a-z0-9_]{1,80}$/),
   params: Joi.array().items(Joi.string().trim().max(1000)).max(10).default([]),
 }).xor('text', 'template');
+const assumeSchema = Joi.object({ force: Joi.boolean() });
 const usageQuery = Joi.object({ period: Joi.string().pattern(/^\d{4}-(0[1-9]|1[0-2])$/) });
 
 router.get('/status', ...member, handle(req => inbox.status(req.companyId)));
@@ -42,7 +44,16 @@ router.get('/conversations/summary', ...member, handle(req => inbox.summary(req.
 router.post('/conversations/:id/read', ...member, paramId, handle(req => inbox.markRead(req.companyId, req.params.id)));
 router.get('/conversations/:id', ...member, paramId, handle(req => inbox.getConversation(req.companyId, req.params.id)));
 router.get('/conversations/:id/messages', ...member, paramId, validateQuery(messagesQuery), handle(req => inbox.listMessages(req.companyId, req.params.id, req.validQuery)));
-router.post('/conversations/:id/assume', ...member, paramId, handle(req => inbox.assume(req.companyId, req.params.id, req.usuario.id)));
+// Follow-up 1: 409 conversation_assigned se outro atendente já assumiu; {force:true} só admin (senão 403 admin_required).
+router.post('/conversations/:id/assume', ...member, paramId, validateBody(assumeSchema), handle(async req => {
+  const force = req.body?.force === true;
+  if (force) {
+    await companiesService.checkCompanyPermission(req.usuario.id, req.companyId).catch(() => {
+      throw Object.assign(new Error('Só administradores podem tomar a conversa de outro atendente.'), { status: 403, code: 'admin_required' });
+    });
+  }
+  return inbox.assume(req.companyId, req.params.id, req.usuario.id, { force });
+}));
 router.post('/conversations/:id/release', ...member, paramId, handle(req => inbox.release(req.companyId, req.params.id)));
 router.post('/conversations/:id/messages', ...member, paramId, validateBody(sendSchema),
   handle(async req => ({ __status: 201, data: await inbox.send(req.companyId, req.params.id, req.usuario.id, req.body) })));

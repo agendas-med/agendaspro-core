@@ -94,7 +94,7 @@ Liga com `WHATSAPP_CLOUD_ENABLED=true` (sem isso, avisos são pulados com `not_c
 | `POST /whatsapp/conversations/:id/read` | membro | follow-up 1: marca lida até a última mensagem (marcador da equipe, não por usuário; responder também marca); devolve a conversa. Cada conversa traz `unread_count` (recebidas acima do marcador) |
 | `GET /whatsapp/conversations/:id` | membro | 404 `conversation_not_found` fora da empresa |
 | `GET /whatsapp/conversations/:id/messages` | membro | `before_id` (mais antigas) ou `after_id` (follow-up 1: polling das novas, ordem crescente; exclusivo com `before_id` → 400), `limit≤200` |
-| `POST /whatsapp/conversations/:id/assume` | membro | modo `human` (bot calado) |
+| `POST /whatsapp/conversations/:id/assume` | membro | modo `human` (bot calado). **Follow-up 1 (mudança de comportamento):** se outro atendente já assumiu → **409 `conversation_assigned`** `{assigned_user_id, assigned_user_name}` e nada muda; corpo opcional `{force:true}` toma a conversa, só admin (não-admin → **403 `admin_required`**). Reassumir a própria é 200 |
 | `POST /whatsapp/conversations/:id/release` | membro | volta ao bot (auto após `WHATSAPP_HUMAN_TIMEOUT_H`, 12h) |
 | `POST /whatsapp/conversations/:id/messages` | membro | `{text}` xor `{template, params[]}` → 201; 409 `window_closed`/`opted_out`/`template_unavailable`; 400 `template_params`; 402 `plan_upgrade_required` |
 | `GET /whatsapp/templates` | membro | nome, finalidade, `param_count`, status |
