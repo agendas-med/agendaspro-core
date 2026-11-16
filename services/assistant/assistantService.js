@@ -282,7 +282,7 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
   const history = cfg.historyWindow
     ? (await functions.executeSql('SELECT role, content FROM assistant_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?', [conv.id, cfg.historyWindow])).reverse()
     : [];
-  await functions.executeSql('INSERT INTO assistant_messages (conversation_id, company_id, role, content, source) VALUES (?, ?, ?, ?, ?)', [conv.id, ctx.companyId, 'user', text, 'user']);
+  const userRow = await functions.executeSql('INSERT INTO assistant_messages (conversation_id, company_id, role, content, source) VALUES (?, ?, ?, ?, ?)', [conv.id, ctx.companyId, 'user', text, 'user']);
 
   const injection = guard.detectInjection(text);
   if (injection.flagged) await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'injection_flagged', detail: injection.reasons.join(',') });
@@ -294,6 +294,8 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
     if (error && error.status && error.code && (error.status < 500 || error.code === 'assistant_actions_disabled')) {
       await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'message_denied', result: error.code });
       await refundInteraction(ctx.companyId, usage).catch(() => {});
+      // Follow-up 1: negada (402/403/503/400) não conta cota nem deixa a pergunta órfã no histórico.
+      if (userRow?.insertId) await functions.executeSql('DELETE FROM assistant_messages WHERE id = ? AND conversation_id = ?', [userRow.insertId, conv.id]).catch(() => {});
       throw error;
     }
     console.error('[assistant] falha ao responder:', error?.code || 'erro');

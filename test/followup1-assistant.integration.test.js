@@ -301,6 +301,41 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
       near(k.created_at, 'kb created_at');
       near(k.updated_at, 'kb updated_at');
     });
+    await t.test('7: proposta negada (402/403/503) não consome cota nem grava a pergunta', async () => {
+      const snapshot = async (companyId, conv) => {
+        const [c] = await sql('SELECT id, message_count FROM assistant_conversations WHERE public_id = ?', [conv]);
+        const [{ n }] = await sql('SELECT COUNT(*) AS n FROM assistant_messages WHERE conversation_id = ?', [c.id]);
+        return { used: await usedNow(companyId), count: Number(c.message_count), rows: Number(n) };
+      };
+      const svc = { name: 'Massagem relaxante', value: 80, duration: 60 };
+      const cases = [
+        ['403 membro em ferramenta de admin', ma, A, 403, 'assistant_forbidden'],
+        ['503 sem segredo', oa, A, 503, 'assistant_actions_disabled'],
+        ['402 plano sem ações', ob, B, 402, null],
+      ];
+      for (const [label, who, companyId, status, code] of cases) {
+        const conv = await newConv(who);
+        await say(who, conv, 'agenda de hoje');
+        const before = await snapshot(companyId, conv);
+        const saved = process.env.ASSISTANT_TOKEN_SECRET;
+        if (status === 503) delete process.env.ASSISTANT_TOKEN_SECRET;
+        try {
+          route('create_service', svc);
+          const r = await say(who, conv, 'crie o serviço massagem relaxante por 80 reais com 60 minutos');
+          assert.equal(r.status, status, label);
+          if (code) assert.equal(errCode(r), code, label);
+        } finally { process.env.ASSISTANT_TOKEN_SECRET = saved; route('none'); }
+        assert.deepEqual(await snapshot(companyId, conv), before, `${label}: cota, message_count e histórico intactos`);
+      }
+      const conv = await newConv(oa);
+      const before = await usedNow(A);
+      route('create_service', svc);
+      const ok = await say(oa, conv, 'crie o serviço massagem relaxante por 80 reais com 60 minutos');
+      route('none');
+      assert.equal(ok.status, 200);
+      assert.equal(ok.data.data.proposed_actions?.[0]?.tool, 'create_service');
+      assert.equal(await usedNow(A), before + 1, 'proposta criada conta');
+    });
 
   } finally {
     require('../services/ai/provider').setProvider(null);

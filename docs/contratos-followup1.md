@@ -177,3 +177,13 @@ Investigado e reproduzido: a conexão roda `SET time_zone = '-03:00'` e o pool l
 
 - A UI deve converter para exibição: `new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })` (ou o fuso da empresa). Nunca exiba a string ISO crua nem remova o `Z`.
 - Teste de regressão (`followup1-assistant`, subteste 6): `created_at`/`updated_at` de conversa, mensagens, listagem e base de conhecimento ficam a menos de 2 min de `Date.now()`.
+
+## A7. Proposta negada não consome cota
+
+Quando a mensagem termina em erro de proposta — 402 `plan_upgrade_required` (plano sem `assistant_actions`), 403 `assistant_forbidden` (membro em ferramenta de admin), 503 `assistant_actions_disabled` (sem `ASSISTANT_TOKEN_SECRET`) ou 400 `assistant_tool_error` — o core:
+
+- devolve a interação da cota (`usage_counters` volta ao valor anterior; já era assim no F5-B, agora coberto por teste para 402/403/503);
+- **novo:** apaga a pergunta do usuário gravada para essa tentativa, então `message_count` e `GET /assistant/conversations/:id` ficam como antes (sem pergunta órfã sem resposta);
+- registra `message_denied` na auditoria (inalterado).
+
+Proposta criada com sucesso continua contando 1 interação. O corpo de erro é o mesmo do F5-B.
