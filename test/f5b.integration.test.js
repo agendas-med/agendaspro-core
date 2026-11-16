@@ -184,6 +184,16 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
     await premium(A);
     let proposal;
 
+    await t.test('sem ASSISTANT_TOKEN_SECRET: escrita => 503 assistant_actions_disabled', async () => {
+      const saved = process.env.ASSISTANT_TOKEN_SECRET;
+      delete process.env.ASSISTANT_TOKEN_SECRET;
+      try {
+        route('cancel_appointment', { appointment_id: 1 });
+        const r = await say(oa, convA, 'desmarque o atendimento da Maria');
+        assert.deepEqual([r.status, errCode(r)], [503, 'assistant_actions_disabled']);
+      } finally { process.env.ASSISTANT_TOKEN_SECRET = saved; }
+    });
+
     await t.test('Premium: IA propõe (não executa); confirm valida token, payload, usuário, empresa, expiração e replay', async () => {
       route('create_appointment', { customer_id: custA, service_ids: [serviceA], date: `${today} 15:00` });
       const before = (await sql('SELECT COUNT(*) AS n FROM appointments WHERE company_id = ?', [A]))[0].n;

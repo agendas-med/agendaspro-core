@@ -253,7 +253,7 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
   try {
     out = await answer(context, text, history, conv.summary, injection);
   } catch (error) {
-    if (error && error.status && error.code && error.status < 500) {
+    if (error && error.status && error.code && (error.status < 500 || error.code === 'assistant_actions_disabled')) {
       await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'message_denied', result: error.code });
       throw error;
     }
