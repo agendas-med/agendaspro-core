@@ -162,7 +162,7 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       assert.equal(chats.length, before, 'não chamou a IA');
       assert.match(r.data.data.reply, /Maria Teste/);
       assert.doesNotMatch(r.data.data.reply, /Cliente B|segredo/);
-      assert.deepEqual(r.data.data.usage, { interactions_used: 1, interactions_limit: 30 });
+      assert.deepEqual(r.data.data.usage, { interactions_used: 1, interactions_limit: 30, counted: true });
       const fin = await say(oa, convA, 'faturamento do mês');
       assert.match(fin.data.data.reply, /Financeiro neste mês/);
       const conv = (await oa.expect(200, 'GET', `/assistant/conversations/${convA}`)).data.data;
@@ -175,6 +175,15 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
       const r = await say(oa, convA, 'por favor desmarque o atendimento da Maria');
       assert.deepEqual([r.status, errCode(r)], [402, 'plan_upgrade_required']);
       assert.equal((await sql('SELECT COUNT(*) AS n FROM assistant_actions'))[0].n, 0);
+      // Follow-up 1: recusa (402) e falha da IA não consomem a cota.
+      const usedNow = async () => Number((await sql("SELECT used FROM usage_counters WHERE company_id = ? AND metric = 'assistant_monthly_interactions'", [A]))[0].used);
+      assert.equal(await usedNow(), 2);
+      plan.route = () => { throw new Error('down'); };
+      const down = await oa.expect(200, 'POST', `/assistant/conversations/${convA}/messages`, { message: 'uma pergunta aberta qualquer sobre marketing' });
+      assert.equal(down.data.data.usage.counted, false);
+      assert.equal(down.data.data.usage.interactions_used, 2);
+      assert.equal(await usedNow(), 2);
+      route('none');
       await sql("UPDATE usage_counters SET used = 30 WHERE company_id = ? AND metric = 'assistant_monthly_interactions'", [A]);
       const q = await say(oa, convA, 'agenda de hoje');
       assert.deepEqual([q.status, errCode(q), q.data.error.quota, q.data.error.limit], [402, 'plan_upgrade_required', 'assistant_monthly_interactions', 30]);

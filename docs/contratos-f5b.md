@@ -24,7 +24,7 @@ Assistente de IA para a equipe da empresa, dentro do painel. Ele responde pergun
 | `POST /assistant/conversations` | – | `201 {id, title, message_count, created_at, updated_at}` (`id` = 32 caracteres hex) |
 | `GET /assistant/conversations` | – | lista das 50 conversas mais recentes do usuário |
 | `GET /assistant/conversations/:id` | – | conversa + `messages[{role, content, intent, source, created_at}]` + `pending_actions[{action_id, tool, summary, risk, expires_at}]` (sem token) |
-| `POST /assistant/conversations/:id/messages` | `{message}` (1 a 4000 caracteres; acima de `ASSISTANT_MAX_MESSAGE_CHARS` é truncado e a resposta traz `truncated:true`) | `{reply, citations?, proposed_actions?, usage:{interactions_used, interactions_limit}}` |
+| `POST /assistant/conversations/:id/messages` | `{message}` (1 a 4000 caracteres; acima de `ASSISTANT_MAX_MESSAGE_CHARS` é truncado e a resposta traz `truncated:true`) | `{reply, citations?, proposed_actions?, usage:{interactions_used, interactions_limit, counted}}` (`counted` desde o follow-up 1) |
 | `POST /assistant/actions/:action_id/confirm` | `{confirm_token}` | `{action_id, status:'executed', tool, summary, result}` |
 | `POST /assistant/actions/:action_id/reject` | – | `{action_id, status:'rejected'}` |
 | `GET/POST /assistant/knowledge`, `PUT/DELETE /assistant/knowledge/:id` (admin) | `{kind: faq\|policy\|rule\|template, title ≤160, content ≤4000}` | itens da base de conhecimento (até 500 por empresa) |
@@ -64,7 +64,7 @@ Formato: `{error:{code, message, ...}}`.
 
 - `assistant_monthly_interactions` vem do entitlement: Free = 30 e Premium = 1000 por mês.
 - O consumo é contado em `usage_counters` (`metric='assistant_monthly_interactions'`, período `YYYY-MM`), com um claim atômico (`UPDATE ... WHERE used+1 <= limite`).
-- **Cada mensagem aceita conta 1 interação**, seja respondida pelo roteador determinístico, seja pela IA. A cota é consumida antes de responder, e uma falha da IA também conta.
+- **Cada mensagem respondida conta 1 interação**, seja pelo roteador determinístico, seja pela IA. A cota é reservada antes de responder (atômica) e **devolvida** (follow-up 1) quando: a resposta é `fallback` (IA indisponível, sem provider, erro ou classificação inválida) ou a mensagem é recusada depois do consumo (402 de escrita no Free, 403, 429 `assistant_budget_exceeded`, 503). Template após falha só da redação continua contando (a leitura foi feita). `usage.counted` diz se esta mensagem contou; `interactions_used` já vem descontado.
 - `assistant_actions` é `true` só no Premium. No Free, o assistente é somente leitura.
 
 ## Fluxo da mensagem
@@ -200,6 +200,6 @@ Os embeddings usam o mesmo orçamento global e da empresa, além do mesmo circui
 
 ## Limitações conhecidas
 
-- As mensagens do assistente (`assistant_messages`) e a auditoria **não** são limpas na anonimização de um cliente. Se o usuário digitou dados do cliente no chat, eles permanecem até a exclusão da conversa ou da empresa.
+- Anonimizar/excluir um cliente (follow-up 1) remove o **nome completo cadastrado**, telefone, CPF e e-mail dele de `assistant_messages`, títulos/resumos de conversa, ações (JSON inteiro trocado por `{"redacted":true}`; pendentes expiram) e auditoria da mesma empresa. Primeiro nome isolado, apelidos e grafias diferentes **permanecem**; nomes com menos de 5 letras e números com menos de 8 dígitos não são buscados.
 - As observações dos agendamentos são enviadas ao provedor de embeddings (OpenAI) quando o RAG está ligado.
 - Não há SSE.

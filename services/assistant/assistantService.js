@@ -73,7 +73,7 @@ async function consumeInteraction(companyId, ent) {
   if (limit === null || limit === undefined) {
     await plansService.incrementUsage(companyId, METRIC);
     const used = await plansService.usageOf(functions.executeSql.bind(functions), companyId, METRIC, new Date());
-    return { used, limit: null };
+    return { used, limit: null, period };
   }
   await functions.executeSql('INSERT IGNORE INTO usage_counters (company_id, metric, period, used) VALUES (?, ?, ?, 0)', [companyId, METRIC, period]);
   const result = await functions.executeSql('UPDATE usage_counters SET used = used + 1 WHERE company_id = ? AND metric = ? AND period = ? AND used + 1 <= ?', [companyId, METRIC, period, Number(limit)]);
@@ -82,7 +82,15 @@ async function consumeInteraction(companyId, ent) {
   if (!result.affectedRows) {
     throw plansService.upgradeError('Limite mensal de interações do assistente atingido. Faça upgrade para o Premium.', { quota: METRIC, limit: Number(limit), used, plan: ent.plan_code });
   }
-  return { used, limit: Number(limit) };
+  return { used, limit: Number(limit), period };
+}
+
+// Devolve a interação consumida (falha da IA / recusa após o consumo). Usa o período do consumo
+// (não recalcula: uma virada de mês no meio não devolve no mês errado).
+async function refundInteraction(companyId, usage) {
+  const result = await functions.executeSql('UPDATE usage_counters SET used = used - 1 WHERE company_id = ? AND metric = ? AND period = ? AND used > 0', [companyId, METRIC, usage.period]);
+  if (result.affectedRows && usage.used > 0) usage.used -= 1;
+  usage.counted = false;
 }
 
 async function rateLimit(ctx) {
@@ -255,18 +263,22 @@ async function sendMessage(ctx, conversationPublicId, rawMessage) {
   } catch (error) {
     if (error && error.status && error.code && (error.status < 500 || error.code === 'assistant_actions_disabled')) {
       await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'message_denied', result: error.code });
+      await refundInteraction(ctx.companyId, usage).catch(() => {});
       throw error;
     }
     console.error('[assistant] falha ao responder:', error?.code || 'erro');
     out = { reply: 'Não consegui concluir agora. Tente novamente em instantes.', source: 'fallback', intent: 'error' };
   }
+  // Regra de cota (follow-up 1): resposta 'fallback' = IA indisponível/falhou => não conta.
+  // Contam: templates determinísticos, respostas da IA, propostas e template após falha de redação.
+  if (out.source === 'fallback') await refundInteraction(ctx.companyId, usage).catch(() => {});
 
   await functions.executeSql('INSERT INTO assistant_messages (conversation_id, company_id, role, content, intent, source) VALUES (?, ?, ?, ?, ?, ?)', [conv.id, ctx.companyId, 'assistant', out.reply, out.intent || null, out.source]);
   const summary = `${conv.summary ? `${conv.summary} | ` : ''}${out.intent || 'conversa'}: ${guard.oneLine(text, 60)}`.slice(-600);
   await functions.executeSql('UPDATE assistant_conversations SET message_count = message_count + 2, summary = ?, title = COALESCE(title, ?) WHERE id = ?', [summary, guard.oneLine(text, 80), conv.id]);
   await audit.log({ companyId: ctx.companyId, userId: ctx.userId, conversationId: conv.id, event: 'message', tool: out.tool || null, result: out.source, detail: out.intent || null, tokens: out.tokens || 0 });
 
-  const response = { reply: out.reply, usage: { interactions_used: usage.used, interactions_limit: usage.limit } };
+  const response = { reply: out.reply, usage: { interactions_used: usage.used, interactions_limit: usage.limit, counted: usage.counted !== false } };
   if (out.citations?.length) response.citations = out.citations;
   if (out.proposed_actions?.length) response.proposed_actions = out.proposed_actions;
   if (truncated) response.truncated = true;
