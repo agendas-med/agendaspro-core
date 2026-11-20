@@ -74,6 +74,17 @@ Corpo form-encoded `signed_request`. A assinatura é verificada com HMAC-SHA256 
 - `POST /data-deletion`: remove as conexões e responde `200 {url, confirmation_code}`. A `url` vem de `INSTAGRAM_DELETION_STATUS_URL` ou, na falta dela, de `PUBLIC_API_URL + /webhook/instagram/deletion-status`.
 - `GET /deletion-status/:code`: público, sem dados pessoais. Responde `{data:{confirmation_code, kind, status, processed_at, message}}` ou `404`.
 
+## Modo Facebook Login for Business (2026-11-20)
+
+Apps novos da Meta só têm "Instagram API with Facebook Login for Business". Com `INSTAGRAM_LOGIN_MODE=facebook` o provider usa esse fluxo; o padrão (`instagram`) continua o Instagram Login.
+
+- **Diálogo**: `${INSTAGRAM_FB_OAUTH_URL}/<versão>/dialog/oauth` com `client_id`, `redirect_uri`, `state`, `response_type=code`. Se `INSTAGRAM_FB_CONFIG_ID` existir, envia `config_id` e não envia `scope`; senão, `scope` = `instagram_basic,instagram_manage_insights,pages_show_list,pages_read_engagement,business_management`.
+- **Troca do código**: código -> token curto de usuário -> token longo de usuário (`fb_exchange_token`; se recusado, segue com o curto) -> `/me?fields=id` (id escopado do app, gravado em `app_user_id`) -> `/me/accounts` (primeira Página com `instagram_business_account`; se não houver, erro `no_instagram_business_account`) -> `/me/permissions` (só `granted`; se falhar, lista vazia).
+- **Token gravado**: `fb:<igUserId>:<tokenDaPagina>` (cifrado como os demais). Não é renovado por rede: o token de Página não expira; revogação vira erro 190 e o fluxo de reconexão existente cuida.
+- **Formato decide a API**: `profile`, `mediaPage`, `mediaInsights` e `accountInsights` leem o formato do token. `fb:` chama `graph.facebook.com/<versão>/<igId>[/media|/insights]`; token antigo do Instagram Login segue em `graph.instagram.com`.
+- **Desautorização/exclusão** (`/webhook/instagram/*`): o `user_id` do `signed_request` é o id escopado do app, comparado com `app_user_id`.
+- **Escopos**: `GET /connect/start` devolve `scopes` do modo ativo.
+
 ## Atribuição UTM da página pública (`/public`)
 
 UTM é normalizada para minúsculas, `[a-z0-9_.-]`. Limites: `utm_source` e `utm_medium` até 40 caracteres; `utm_campaign` e `utm_content` até 80. Nada de IP ou dado pessoal é gravado.

@@ -55,7 +55,7 @@ async function startConnect({ companyId, userId, redirectUri }) {
   assertConfigured();
   const uri = oauthState.resolveRedirectUri(REDIRECT_ENV, redirectUri);
   const state = await oauthState.issue({ provider: PROVIDER, companyId, userId, redirectUri: uri });
-  return { authorize_url: provider.authorizeUrl({ redirectUri: uri, state }), state, redirect_uri: uri, expires_in: oauthState.TTL_SEC, scopes: provider.SCOPES };
+  return { authorize_url: provider.authorizeUrl({ redirectUri: uri, state }), state, redirect_uri: uri, expires_in: oauthState.TTL_SEC, scopes: provider.activeScopes() };
 }
 
 function oauthFailure(error) {
