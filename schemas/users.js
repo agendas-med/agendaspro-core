@@ -44,8 +44,11 @@ let schema = {
 const email = () => Joi.string().trim().lowercase().email({ tlds: { allow: false } }).max(255).required();
 const newPassword = () => Joi.string().min(8).max(128).required().messages({ 'string.min': 'A senha deve ter pelo menos 8 caracteres.' });
 const opaqueToken = () => Joi.string().min(16).max(200).required();
+// Aceite dos Termos no cadastro: obrigatório e somente `true` (checkbox do painel).
+const TERMS_MESSAGE = 'É preciso aceitar os Termos de Uso e a Política de Privacidade.';
+const termsAccepted = () => Joi.valid(true).required().messages({ 'any.only': TERMS_MESSAGE, 'any.required': TERMS_MESSAGE });
 Object.assign(schema, {
-    register: Joi.object({ name: Joi.string().trim().min(2).max(255).required(), email: email(), password: newPassword() }),
+    register: Joi.object({ name: Joi.string().trim().min(2).max(255).required(), email: email(), password: newPassword(), accept_terms: termsAccepted() }),
     login: Joi.object({ email: email(), password: Joi.string().min(1).max(128).required() }),
     googleLogin: Joi.object({ token: Joi.string().min(1).max(2048).required() }),
     checkJwt: Joi.object({ token: Joi.string().max(4096).allow(''), refresh_token: Joi.string().max(200) }).or('token', 'refresh_token'),

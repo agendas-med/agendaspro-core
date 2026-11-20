@@ -169,7 +169,7 @@ test('F6: Google Agenda (OAuth+PKCE, push idempotente, bloqueios por syncToken, 
     async function tenant(label, document) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${label}-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: `Dono ${label}`, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: `Dono ${label}`, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj;
       const companyId = (await expect(200, 'POST', '/companies/create_company', {
         auth: login.jwtToken,
@@ -189,7 +189,7 @@ test('F6: Google Agenda (OAuth+PKCE, push idempotente, bloqueios por syncToken, 
     await premium(B.companyId);
     const memberEmail = `membro-${process.pid}@agendaspro.test`;
     const memberPassword = `senha-m-${secret()}`;
-    const reg = await expect(200, 'POST', '/users/register', { body: { name: 'Membro B', email: memberEmail, password: memberPassword } });
+    const reg = await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: 'Membro B', email: memberEmail, password: memberPassword } });
     const memberToken = (await expect(200, 'POST', '/users/login', { body: { email: memberEmail, password: memberPassword } })).returnObj.jwtToken;
     await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [B.companyId, reg.returnObj.id]);
     const M = (method, path, body, expected = 200) => expect(expected, method, path, { body, auth: memberToken, company: B.companyId });

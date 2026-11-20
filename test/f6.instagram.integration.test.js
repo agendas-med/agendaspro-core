@@ -126,7 +126,7 @@ test('F6: Instagram (OAuth, cache, Free x Premium, insights, jobs, UTM/atribuiç
     async function tenant(label, document) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${label}-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: `Dono ${label}`, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: `Dono ${label}`, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj;
       const companyId = (await expect(200, 'POST', '/companies/create_company', {
         auth: login.jwtToken,
@@ -148,7 +148,7 @@ test('F6: Instagram (OAuth, cache, Free x Premium, insights, jobs, UTM/atribuiç
     // Membro (não admin) da empresa A.
     const memberEmail = `membro-${process.pid}@agendaspro.test`;
     const memberPassword = `senha-m-${secret()}`;
-    const reg = await expect(200, 'POST', '/users/register', { body: { name: 'Membro A', email: memberEmail, password: memberPassword } });
+    const reg = await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: 'Membro A', email: memberEmail, password: memberPassword } });
     const memberToken = (await expect(200, 'POST', '/users/login', { body: { email: memberEmail, password: memberPassword } })).returnObj.jwtToken;
     await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [A.companyId, reg.returnObj.id]);
     const M = (method, path, body, expected = 200) => expect(expected, method, path, { body, auth: memberToken, company: A.companyId });

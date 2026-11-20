@@ -95,7 +95,7 @@ test('F5B: assistente do painel (rotas, cota, ações confirmadas, RBAC, isolame
     async function account(label) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: label, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: label, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).data.returnObj;
       return { token: login.jwtToken, id: login.id || (await sql('SELECT id FROM users WHERE email = ?', [email]))[0].id };
     }

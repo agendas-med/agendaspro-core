@@ -161,7 +161,7 @@ test('selected-company: só inteiro positivo', () => {
 test('Joi: autenticação, horários e cliente', () => {
   const { users, companies, customers } = validate.schemas;
   assert.ok(users.register.validate({ name: 'Ana', email: 'ana@example.test', password: 'curta' }).error, 'senha nova >= 8');
-  assert.ok(!users.register.validate({ name: 'Ana', email: 'ana@example.test', password: 'senha-longa-ok' }).error);
+  assert.ok(!users.register.validate({ name: 'Ana', email: 'ana@example.test', password: 'senha-longa-ok', accept_terms: true }).error);
   assert.ok(users.login.validate({ email: "x' OR 1=1 --", password: 'a' }).error);
   assert.ok(users.login.validate({ email: 'a@example.test', password: 'a', extra: 1 }).error, 'campos desconhecidos rejeitados');
   assert.ok(users.checkJwt.validate({}).error, 'exige token ou refresh_token');

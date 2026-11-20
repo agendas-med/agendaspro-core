@@ -76,7 +76,7 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
     async function tenant(label, document) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${label}-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: `Dono ${label}`, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: `Dono ${label}`, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj;
       const companyId = (await expect(200, 'POST', '/companies/create_company', {
         auth: login.jwtToken,
@@ -183,7 +183,7 @@ test('F1: isolamento, auth, jobs, webhooks e LGPD no MariaDB isolado', { skip: !
       try {
         const invitedEmail = `convidado-${process.pid}@agendaspro.test`;
         const password = `senha-${secret()}`;
-        await expect(200, 'POST', '/users/register', { body: { name: 'Convidado', email: invitedEmail, password } });
+        await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: 'Convidado', email: invitedEmail, password } });
         const [role] = await sql('SELECT id FROM config_company_roles WHERE company_id = ? LIMIT 1', [A.companyId]);
         const token = await require('../services/companiesService').inviteUser(A.companyId, 'Convidado', 0, invitedEmail, A.userId, role.id);
         const [invite] = await sql('SELECT token, token_hash, expires_at FROM company_invitations WHERE invited_user = ?', [invitedEmail]);

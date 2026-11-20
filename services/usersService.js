@@ -5,6 +5,7 @@ const emailTemplates = require("../templates/emailTemplates");
 const jwt = require('jsonwebtoken');
 const { getJwtSecret, ACCESS_TOKEN_TTL } = require("../config/jwt");
 const { sha256, randomToken } = require("../utils/crypto");
+const { TERMS_VERSION } = require("../config/legal");
 
 const AUTH_FAILED = "Falha na autenticação";
 const SESSION_INVALID = "Sessão inválida ou expirada. Faça login novamente.";
@@ -45,10 +46,11 @@ async function assertSessionNotStale(user_id, origIat) {
 }
 
 let usersService = {
-    register: async function (name, email, password) {
+    // Grava também a prova de aceite: instante, versão vigente dos Termos e IP de origem.
+    register: async function (name, email, password, ip = null) {
         const hash = await bcrypt.hash(password, 10);
         try {
-            const results = await functions.executeSql(`INSERT INTO users (name, email, password) VALUES (?, ?, ?)`, [name, email, hash]);
+            const results = await functions.executeSql(`INSERT INTO users (name, email, password, terms_accepted_at, terms_version, terms_accept_ip) VALUES (?, ?, ?, NOW(), ?, ?)`, [name, email, hash, TERMS_VERSION, ip]);
             return { id: results.insertId, email: email };
         } catch (error) {
             if (error && error.code === 'ER_DUP_ENTRY') throw "Este email já está cadastrado.";

@@ -85,7 +85,7 @@ test('F3: API pública (página, disponibilidade, reserva, sinal Pix, gestão, l
     async function tenant(label, document) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${label}-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: `Dono ${label}`, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: `Dono ${label}`, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj;
       const companyId = (await expect(200, 'POST', '/companies/create_company', {
         auth: login.jwtToken,

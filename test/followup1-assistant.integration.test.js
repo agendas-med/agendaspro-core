@@ -82,7 +82,7 @@ test('Follow-up 1: adendo do assistente no MariaDB isolado', { skip: !process.en
     async function account(label) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: label, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, accept_terms: true, name: label, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).data.returnObj;
       return { token: login.jwtToken, id: login.id };
     }

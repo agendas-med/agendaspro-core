@@ -94,7 +94,7 @@ test('F5A: chat público (sessão, Turnstile, limites, FAQ, IA, injeção, break
     const [business] = await sql('SELECT id FROM business_types LIMIT 1');
     const email = `dono-${process.pid}@agendaspro.test`;
     const password = `senha-${secret()}`;
-    await expect(200, 'POST', '/users/register', { body: { name: 'Dono', email, password } });
+    await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: 'Dono', email, password } });
     const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).data.returnObj;
     const companyId = (await expect(200, 'POST', '/companies/create_company', {
       auth: login.jwtToken,

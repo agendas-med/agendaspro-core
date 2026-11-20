@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const mysql = require('mysql');
 const { promisify } = require('node:util');
+const { TERMS_VERSION } = require('../config/legal');
 
 test('fluxos reais no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_PASSWORD, timeout: 90000 }, async t => {
   const database = `agendaspro_test_${process.pid}`;
@@ -38,7 +39,13 @@ test('fluxos reais no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_PASSWORD
       return data;
     }
     await request('GET', '/health');
-    const registration = await request('POST', '/users/register', { name: 'Teste Local', email: 'integration@agendaspro.test', password: 'integration-password' });
+    await request('POST', '/users/register', { name: 'Sem Aceite', email: 'sem-aceite@agendaspro.test', password: 'integration-password' }, 400);
+    const registration = await request('POST', '/users/register', { name: 'Teste Local', email: 'integration@agendaspro.test', password: 'integration-password', accept_terms: true });
+    const [accepted] = await sql('SELECT terms_accepted_at, terms_version, terms_accept_ip FROM users WHERE id = ?', [registration.returnObj.id]);
+    assert.equal(accepted.terms_version, TERMS_VERSION);
+    assert.ok(accepted.terms_accepted_at, 'aceite com data gravado');
+    assert.ok(accepted.terms_accept_ip, 'IP do aceite gravado');
+    assert.equal((await sql('SELECT COUNT(*) AS total FROM users WHERE email = ?', ['sem-aceite@agendaspro.test']))[0].total, 0);
     token = (await request('POST', '/users/login', { email: 'integration@agendaspro.test', password: 'integration-password' })).returnObj.jwtToken;
     const [business] = await sql('SELECT id FROM business_types LIMIT 1');
     companyId = (await request('POST', '/companies/create_company', {

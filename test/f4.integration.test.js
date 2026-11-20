@@ -89,7 +89,7 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
     async function tenant(label, document) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${label}-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: `Dono ${label}`, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: `Dono ${label}`, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj;
       const companyId = (await expect(200, 'POST', '/companies/create_company', {
         auth: login.jwtToken,
@@ -465,7 +465,7 @@ test('F4: WhatsApp Cloud API (webhook, bot, inbox, opt-out, janela, limites, iso
     await t.test('follow-up 1: assumir não toma conversa de outro atendente', async () => {
       const email = `membro-${process.pid}@agendaspro.test`;
       const password = `senha-m-${secret()}`;
-      const reg = await expect(200, 'POST', '/users/register', { body: { name: 'Membro A', email, password } });
+      const reg = await expect(200, 'POST', '/users/register', { body: { accept_terms: true, name: 'Membro A', email, password } });
       const memberToken = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj.jwtToken;
       await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [A.companyId, reg.returnObj.id]);
       const M = (method, path, body, expected = 200) => expect(expected, method, path, { body, auth: memberToken, company: A.companyId });

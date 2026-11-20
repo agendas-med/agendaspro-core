@@ -1,5 +1,5 @@
 -- Aplicar ao banco selecionado na conexão. Para bancos existentes, use npm run db:migrate.
--- Snapshot gerado das migrations 001-020 (fonte da verdade: sql/migrations). Sem dados nem schema_migrations.
+-- Snapshot gerado das migrations 001-021 (fonte da verdade: sql/migrations). Sem dados nem schema_migrations.
 -- MariaDB dump 10.19-11.4.13-MariaDB, for debian-linux-gnu (x86_64)
 --
 -- Host: localhost    Database: agendaspro_db
@@ -1638,6 +1638,9 @@ CREATE TABLE `users` (
   `state` varchar(100) DEFAULT NULL,
   `code` varchar(100) DEFAULT NULL,
   `password_changed_at` datetime DEFAULT NULL,
+  `terms_accepted_at` datetime DEFAULT NULL,
+  `terms_version` varchar(20) DEFAULT NULL,
+  `terms_accept_ip` varchar(45) DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `email` (`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

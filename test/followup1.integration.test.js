@@ -62,7 +62,7 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
     async function user(label) {
       const email = `${label}-${process.pid}@agendaspro.test`;
       const password = `senha-${label}-${secret()}`;
-      await expect(200, 'POST', '/users/register', { body: { name: `Pessoa ${label}`, email, password } });
+      await expect(200, 'POST', '/users/register', { body: { accept_terms: true, accept_terms: true, name: `Pessoa ${label}`, email, password } });
       const login = (await expect(200, 'POST', '/users/login', { body: { email, password } })).returnObj;
       return { email, userId: login.id, token: login.jwtToken };
     }
@@ -206,7 +206,7 @@ test('Follow-up 1: bloco D no MariaDB isolado', { skip: !process.env.MYSQL_ROOT_
         const extra = await user('c-extra');
         await sql('INSERT INTO company_members (company_id, user_id) VALUES (?, ?)', [C.companyId, extra.userId]);
         const invitedPassword = `senha-${secret()}`;
-        await expect(200, 'POST', '/users/register', { body: { name: 'Convidado', email: invitedEmail, password: invitedPassword } });
+        await expect(200, 'POST', '/users/register', { body: { accept_terms: true, accept_terms: true, name: 'Convidado', email: invitedEmail, password: invitedPassword } });
         const over = await call('POST', '/companies/enter_company', { body: { token, email: invitedEmail } });
         assert.equal(over.status, 402, over.raw);
         assert.equal(over.data.error.code, 'plan_upgrade_required');

@@ -7,6 +7,7 @@ const validate = require("../middleware/validate");
 const rateLimit = require("../middleware/rateLimit");
 const { sendError } = require("../middleware/errorHandler");
 const axios = require("axios");
+const { TERMS_VERSION } = require("../config/legal");
 
 const schemas = validate.schemas.users;
 // Erros de negócio (strings) seguem em texto puro, como antes; internos viram 500 genérico.
@@ -15,7 +16,7 @@ const ok = (res, message, data, method) => res.status(200).send(functions.create
 const byEmail = (prefix) => (req) => `${prefix}:${String(req.body?.email || '').toLowerCase().slice(0, 255)}`;
 
 router.post("/register", rateLimit({ key: 'register', windowSec: 3600, max: 10 }), validate.validateRequest(schemas.register), (req, res) => {
-    _usersService.register(req.body.name, req.body.email, req.body.password)
+    _usersService.register(req.body.name, req.body.email, req.body.password, req.ip)
         .then((results) => ok(res, "Usuário criado com sucesso", results, "POST"))
         .catch(fail(req, res, 409));
 });
@@ -51,9 +52,10 @@ router.post("/google-login", rateLimit({ key: 'google-login', windowSec: 900, ma
 
         if (!userId) {
             try {
+                // Login com Google não tem checkbox: o aceite é o texto da tela. Gravado só na criação da conta.
                 const insertedUser = await functions.executeSql(
-                    `INSERT INTO users (code, name, email, url_photo) VALUES (?, ?, ?, ?)`,
-                    [userInfo.id, userInfo.given_name || userInfo.name || "Usuário", userInfo.email, userInfo.picture]
+                    `INSERT INTO users (code, name, email, url_photo, terms_accepted_at, terms_version, terms_accept_ip) VALUES (?, ?, ?, ?, NOW(), ?, ?)`,
+                    [userInfo.id, userInfo.given_name || userInfo.name || "Usuário", userInfo.email, userInfo.picture, TERMS_VERSION, req.ip]
                 );
                 userId = insertedUser.insertId;
             } catch (error) {
